@@ -33,17 +33,67 @@ const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY as string | undefined
 const GEMINI_MODEL = 'gemini-2.5-flash'
 
 /**
- * Call Gemini 1.5 Flash (free tier: 15 req/min, 1500 req/day) to generate
- * four STAR-formula resume bullets for a project.
- *
- * Prompt engineering follows Columbia Career Ed + Teal + Resumly best practices:
- *  - Past-tense action verb first
- *  - [Verb] + [What + tools/scale] + [Quantified result]
- *  - [X] placeholder where metrics are unknown
- *  - 60–175 chars each; no "I", "We", "Responsible for"
+ * Base Gemini call with thinking DISABLED.
+ * Gemini 2.5 Flash uses "thinking" by default — it burns hundreds of tokens
+ * on internal reasoning before writing the actual answer, which truncates
+ * our output when maxOutputTokens is modest. Setting thinkingBudget: 0
+ * disables thinking so all tokens go straight to the response.
  */
+async function gemini(prompt: string, apiKey: string, maxTokens = 1200): Promise<string> {
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: 0.3,
+          maxOutputTokens: maxTokens,
+          // Disable thinking — resume writing is straightforward, no deep reasoning needed
+          thinkingConfig: { thinkingBudget: 0 },
+        },
+      }),
+    }
+  )
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error((err as { error?: { message?: string } }).error?.message ?? `Gemini error ${res.status}`)
+  }
+  const data = await res.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] }
+  return data.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
+}
+
+/**
+ * Parse Gemini bullet-list responses robustly.
+ * Gemini 2.5 often adds preamble lines ("Here are 4 bullets:") or trailing
+ * commentary. We filter these out by keeping only lines that:
+ *  - Start with a capital letter followed by lowercase (action verb pattern)
+ *  - Are 40–300 characters (actual bullet length)
+ *  - Don't look like headers / meta-commentary
+ */
+function parseBulletLines(text: string, limit = 4): string[] {
+  // Strip any markdown bold/italic wrappers first
+  const cleaned = text.replace(/\*{1,3}([^*\n]+)\*{1,3}/g, '$1')
+
+  const SKIP = /^(here are|these are|below are|the following|note:|output:|result:|bullet|example|i've|i have|please|sure|absolutely|of course|certainly)/i
+
+  return cleaned
+    .split('\n')
+    .map(l => l.trim())
+    // Strip leading list markers: "1.", "•", "-", "*", "1)", etc.
+    .map(l => l.replace(/^[\s\-•*\u2022\u2023\u25e6]+\s*/, '').replace(/^\d+[\.\)]\s*/, ''))
+    .filter(l => {
+      if (l.length < 40 || l.length > 320) return false   // too short = preamble, too long = paragraph
+      if (SKIP.test(l)) return false                        // filter meta commentary
+      if (/[?:]$/.test(l)) return false                     // headers end in ? or :
+      return true
+    })
+    .slice(0, limit)
+}
+
+/** Generate 4 STAR-formula bullets using Gemini */
 async function callGeminiForBullets(project: Project, apiKey: string): Promise<string[]> {
-  // Clean the description to reduce noise / token cost
   const cleanDesc = project.description
     .replace(/<[^>]+>/g, ' ')
     .replace(/&[a-z#0-9]+;/gi, ' ')
@@ -59,81 +109,45 @@ async function callGeminiForBullets(project: Project, apiKey: string): Promise<s
 
   const tags = (project.tags ?? []).join(', ') || 'Python'
 
-  const prompt = `You are an expert resume writer for data science and software engineering roles. Your bullets are used on real resumes sent to top companies and must pass ATS screening.
+  const prompt = `You are an expert resume writer for data science and software engineering roles.
 
-Generate exactly 4 resume bullet points for the project below. Each bullet must:
-1. Start with a strong PAST-TENSE action verb (Built, Developed, Engineered, Designed, Optimized, Analyzed, Evaluated, Implemented, Deployed, Processed, Constructed, Automated…)
-2. Follow the STAR formula: [Verb] + [What you did + tools/tech + scale] + [quantified result or outcome]
-3. Use "[X]" or "[X]%" as a placeholder where specific metrics are not in the description — the user will fill these in
-4. Be 60–175 characters each (ATS and recruiter sweet spot)
-5. Cover these 4 aspects IN ORDER:
-   • Bullet 1 — WHAT was built: the system/model/pipeline + core algorithms + tech stack
-   • Bullet 2 — DATA SCALE: dataset size, sources, preprocessing, feature engineering
-   • Bullet 3 — METHODOLOGY: model selection/comparison, validation, training approach
-   • Bullet 4 — RESULTS/DEPLOYMENT: accuracy/metric achieved + how it was deployed, evaluated, or presented
-6. NEVER start with "I", "We", "Responsible for", "Helped", "Utilized", "Leveraged", or "Used X to…"
-7. Use specific numbers already in the description if you see them (e.g. "3.4M+ orders", "493 subjects", "95% accuracy")
+Write EXACTLY 4 resume bullet points for the project below. Follow these rules strictly:
+
+RULES:
+- Each bullet starts with a PAST-TENSE action verb (Built, Developed, Engineered, Designed, Optimized, Analyzed, Evaluated, Implemented, Deployed, Processed, Automated, Constructed…)
+- STAR formula: [Verb] + [What you did + tools/tech + scale] + [quantified result or outcome]
+- Use "[X]" or "[X]%" placeholder where metrics are not in the description; user will fill them in
+- 80–175 characters per bullet — no shorter, no longer
+- NEVER start with "I", "We", "Responsible for", "Helped", "Utilized", "Leveraged", or "Used X to"
+- Use numbers already in the description (e.g. "3.4M+ orders", "493 subjects", "95% accuracy")
+
+COVER THESE 4 ASPECTS IN ORDER:
+Line 1: What was BUILT — the system/model/pipeline name + core algorithms + tech stack
+Line 2: DATA & SCALE — dataset size, source, preprocessing steps, feature engineering
+Line 3: METHODOLOGY — model selection/comparison, validation strategy, training approach
+Line 4: RESULTS & DEPLOYMENT — metric achieved + how it was deployed/evaluated/presented
 
 Project title: ${project.title}
 Technologies: ${tags}
 Description: ${cleanDesc}
 
-Output ONLY the 4 bullet points, one per line, with no numbering, no dashes, no bullets, no extra commentary.`
+IMPORTANT: Output EXACTLY 4 lines. Each line is one bullet. No numbering. No dashes. No headers. No explanation before or after. Start writing the first bullet immediately.`
 
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.25, maxOutputTokens: 600 },
-      }),
-    }
-  )
+  const text = await gemini(prompt, apiKey, 1200)
+  const bullets = parseBulletLines(text, 4)
 
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}))
-    throw new Error((err as { error?: { message?: string } }).error?.message ?? `Gemini error ${res.status}`)
+  // If we somehow got fewer than 4, pad with template stubs so UI always shows 4 slots
+  while (bullets.length < 4) {
+    const stubs = [
+      `Built [system] using ${tags}, processing [X]+ records to achieve [outcome].`,
+      `Processed and cleaned [X]+ rows of real-world data using ${tags}, engineering [X] features.`,
+      `Evaluated [X] model architectures using precision@k, recall@k, and NDCG@k metrics.`,
+      `Deployed solution as [Streamlit app / REST API] and presented findings to [audience], achieving [X]% accuracy.`,
+    ]
+    bullets.push(stubs[bullets.length] ?? '')
   }
-  const data = await res.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] }
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
 
-  return text
-    .split('\n')
-    .map(l => l.trim().replace(/^[-•*\d.)\s]+/, ''))
-    .filter(l => l.length > 15)
-    .slice(0, 4)
-}
-
-/** Shared low-level Gemini call */
-async function gemini(prompt: string, apiKey: string, maxTokens = 600): Promise<string> {
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.3, maxOutputTokens: maxTokens },
-      }),
-    }
-  )
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}))
-    throw new Error((err as { error?: { message?: string } }).error?.message ?? `Gemini error ${res.status}`)
-  }
-  const data = await res.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] }
-  return data.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
-}
-
-/** Parse bullet lines from Gemini response */
-function parseBulletLines(text: string, limit = 4): string[] {
-  return text
-    .split('\n')
-    .map(l => l.trim().replace(/^[-•*\d.)\s]+/, ''))
-    .filter(l => l.length > 15)
-    .slice(0, limit)
+  return bullets
 }
 
 /** AI-written summary using all portfolio context */
@@ -175,9 +189,9 @@ Skills: ${topSkills}
 Projects: ${projTitles}
 Sample work context: ${sampleBullets || 'Not available'}
 
-Output ONLY the summary paragraph, no labels, no headings, no extra text.`
+IMPORTANT: Output ONLY the summary paragraph (3–4 sentences). No labels. No headings. Start writing immediately.`
 
-  return (await gemini(prompt, apiKey, 300)).trim()
+  return (await gemini(prompt, apiKey, 600)).trim()
 }
 
 /** Rewrite a single bullet to be stronger */
@@ -187,23 +201,31 @@ async function callGeminiImproveBullet(
   tags: string[],
   apiKey: string
 ): Promise<string> {
-  const prompt = `You are an expert resume writer. Rewrite the following resume bullet to be stronger and more impactful.
+  const prompt = `You are an expert resume writer. Rewrite the resume bullet below to be stronger and more impactful.
 
-Requirements:
-1. Keep the same core content and facts — do NOT invent new numbers
-2. Improve the action verb if it is weak (use: Built, Engineered, Developed, Optimized, Analyzed, Evaluated, Deployed, Automated, Implemented…)
-3. Make the result/metric more specific if possible, otherwise add "[X]" placeholder
-4. Keep it 60–175 characters
+RULES:
+1. Keep the same core facts — do NOT invent numbers
+2. Start with a strong PAST-TENSE action verb (Built, Engineered, Developed, Optimized, Analyzed, Evaluated, Deployed, Automated, Implemented…)
+3. Add "[X]" or "[X]%" placeholder if a metric is missing or vague
+4. Output must be 80–175 characters
 5. NEVER start with "I", "We", "Responsible for", "Leveraged", "Utilized"
-6. If the bullet is already excellent, return it unchanged
 
 Project: ${projectTitle}
 Technologies: ${tags.join(', ')}
 Original bullet: ${bullet}
 
-Output ONLY the improved bullet, one line, no extra text.`
+IMPORTANT: Output ONLY the single improved bullet on one line. No quotes. No explanation. No dash at the start. Start writing the bullet immediately.`
 
-  return (await gemini(prompt, apiKey, 120)).trim().replace(/^[-•*\d.)\s]+/, '')
+  const raw = (await gemini(prompt, apiKey, 400)).trim()
+  // Strip any leading list markers or quotes Gemini adds despite instructions
+  const cleaned = raw
+    .split('\n')[0]  // only the first line — ignore any follow-up commentary
+    .trim()
+    .replace(/^[-•*"'\d.)\s]+/, '')
+    .replace(/\*{1,3}([^*]+)\*{1,3}/g, '$1')
+    .trim()
+  // Sanity check: if result is less than 20 chars Gemini gave garbage, return original
+  return cleaned.length >= 20 ? cleaned : bullet
 }
 
 /** Generate a short subtitle for a project entry (the "— subtitle" part) */
@@ -212,17 +234,19 @@ async function callGeminiForSubtitle(project: Project, apiKey: string): Promise<
     .replace(/<[^>]+>/g, ' ').replace(/&[a-z#0-9]+;/gi, ' ')
     .replace(/https?:\/\/\S+/g, '').replace(/\s+/g, ' ').slice(0, 600).trim()
 
-  const prompt = `Generate a short subtitle (4–8 words) for this project that describes what type of system/pipeline/model it is. This will appear after an em-dash on a resume: "Project Title — [your subtitle]".
+  const prompt = `Write a short subtitle (4–8 words) describing this project's type. It appears after an em-dash on a resume: "Project Title — [subtitle]".
 
-Examples of good subtitles: "Hybrid ML Ranking Pipeline", "NLP Topic Modeling System", "Deep Learning Classification Model", "End-to-End Data Analysis Pipeline"
+Good examples: "Hybrid ML Ranking Pipeline", "NLP Topic Modeling System", "Deep Learning Classification Model", "End-to-End Data Analysis Pipeline"
 
 Project title: ${project.title}
 Technologies: ${(project.tags ?? []).join(', ')}
 Description (excerpt): ${cleanDesc}
 
-Output ONLY the subtitle (4–8 words, no quotes, no punctuation at end).`
+IMPORTANT: Output ONLY the subtitle words (4–8 words). No quotes. No dash. No punctuation at the end. Start immediately.`
 
-  return (await gemini(prompt, apiKey, 40)).trim().replace(/^["']|["']$/g, '').replace(/\.$/, '')
+  const raw = (await gemini(prompt, apiKey, 200)).trim()
+  // Take first line only, strip any quotes/punctuation Gemini adds
+  return raw.split('\n')[0].trim().replace(/^["']|["']$/g, '').replace(/[.:!?]$/, '')
 }
 
 /** Tailor entire resume to a job description — returns updated summary + per-entry bullets */
@@ -278,9 +302,9 @@ Output as JSON exactly in this format (no markdown code block):
   ]
 }`
 
-  const raw = (await gemini(prompt, apiKey, 1200)).trim()
+  const raw = (await gemini(prompt, apiKey, 3000)).trim()
   // Strip markdown code fences if Gemini wraps it anyway
-  const jsonStr = raw.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim()
+  const jsonStr = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
 
   type TailorOutput = { summary?: string; entries?: { index?: number; bullets?: string[] }[] }
   const parsed = JSON.parse(jsonStr) as TailorOutput
