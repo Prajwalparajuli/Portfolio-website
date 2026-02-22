@@ -249,6 +249,7 @@ export function AdminProjects() {
         demo_url: project.demo_url,
         display_order: maxOrder + 1,
         is_published: false,
+        ask_me_about: project.ask_me_about ?? null,
       })
       if (created) {
         setProjects([...projects, created])
