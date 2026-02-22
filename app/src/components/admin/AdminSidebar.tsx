@@ -7,7 +7,8 @@ import {
   Settings, 
   Activity,
   LogOut,
-  ExternalLink
+  ExternalLink,
+  FileText
 } from 'lucide-react'
 import { Link, useLocation } from 'react-router-dom'
 import { cn } from '@/lib/utils'
@@ -17,6 +18,7 @@ const navItems = [
   { href: getAdminPath(), label: 'Dashboard', icon: LayoutDashboard },
   { href: getAdminPath('projects'), label: 'Projects', icon: FolderKanban },
   { href: getAdminPath('skills'), label: 'Skills', icon: Tags },
+  { href: getAdminPath('resume'), label: 'Resume', icon: FileText },
   { href: getAdminPath('settings'), label: 'Settings', icon: Settings },
   { href: getAdminPath('activity'), label: 'Activity', icon: Activity },
 ]

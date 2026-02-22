@@ -5,10 +5,12 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Loader2, Upload, FileText, Github, Linkedin, Twitter, Mail, Plus, Trash2, GraduationCap, Award } from 'lucide-react'
+import { Loader2, Upload, FileText, Github, Linkedin, Twitter, Mail, Plus, Trash2, GraduationCap, Award, PenLine } from 'lucide-react'
 import { PortfolioSettings, EducationEntry } from '@/types'
 import { getSettings, updateSetting, uploadResume } from '@/lib/supabase'
 import { cn } from '@/lib/utils'
+import { Link } from 'react-router-dom'
+import { getAdminPath } from '@/lib/adminConfig'
 
 export function AdminSettings() {
   const [settings, setSettings] = useState<PortfolioSettings | null>(null)
@@ -263,9 +265,33 @@ export function AdminSettings() {
           </TabsContent>
 
           <TabsContent value="resume" className="space-y-6">
+            {/* Resume builder entry point */}
+            <Card className="glass border-white/20">
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <PenLine className="h-5 w-5" />
+                  Resume Builder
+                </CardTitle>
+                <p className="text-sm text-muted-foreground">
+                  Build an ATS-friendly resume from your projects, skills, and education — with a live preview and one-click PDF export.
+                </p>
+              </CardHeader>
+              <CardContent>
+                <Link to={getAdminPath('resume')}>
+                  <Button className="gap-2">
+                    <PenLine className="h-4 w-4" />
+                    Open Resume Builder
+                  </Button>
+                </Link>
+              </CardContent>
+            </Card>
+
             <Card className="glass">
               <CardHeader>
                 <CardTitle className="text-lg">Resume</CardTitle>
+                <p className="text-sm text-muted-foreground">
+                  Upload a PDF directly (overrides the builder URL shown on the public site).
+                </p>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-2">

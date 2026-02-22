@@ -10,6 +10,7 @@ import { AdminProjectForm } from './app/admin/ProjectForm'
 import { AdminSkills } from './app/admin/Skills'
 import { AdminSettings } from './app/admin/Settings'
 import { AdminActivity } from './app/admin/Activity'
+import { AdminResumeEditor } from './app/admin/ResumeEditor'
 import { AuthProvider } from './components/auth/AuthProvider'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { getAdminPath } from './lib/adminConfig'
@@ -38,6 +39,7 @@ function App() {
           <Route path="skills" element={<AdminSkills />} />
           <Route path="settings" element={<AdminSettings />} />
           <Route path="activity" element={<AdminActivity />} />
+          <Route path="resume" element={<AdminResumeEditor />} />
         </Route>
       </Routes>
       </AuthProvider>

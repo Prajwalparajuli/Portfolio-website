@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { Project, Skill, PortfolioSettings, EducationEntry } from '@/types'
+import { ResumeContent, makeDefaultResumeContent } from '@/types/resume'
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || ''
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || ''
@@ -364,6 +365,26 @@ export async function uploadResume(file: File): Promise<string | null> {
   await updateSetting('resume_url', publicUrl)
   
   return publicUrl
+}
+
+// Resume content (structured builder data)
+export async function getResumeContent(): Promise<ResumeContent | null> {
+  if (!isSupabaseConfigured) return null
+  try {
+    const { data, error } = await supabase
+      .from('settings')
+      .select('value')
+      .eq('key', 'resume_content')
+      .maybeSingle()
+    if (error || !data) return null
+    return JSON.parse(data.value) as ResumeContent
+  } catch {
+    return null
+  }
+}
+
+export async function updateResumeContent(content: ResumeContent): Promise<void> {
+  await updateSetting('resume_content', JSON.stringify(content))
 }
 
 function parseEducation(value: string | undefined): EducationEntry[] {
