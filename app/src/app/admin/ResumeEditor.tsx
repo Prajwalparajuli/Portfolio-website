@@ -29,7 +29,8 @@ import { cn } from '@/lib/utils'
 // ─── Gemini API ───────────────────────────────────────────────────────────────
 
 const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY as string | undefined
-const GEMINI_MODEL = 'gemini-1.5-flash'
+// gemini-2.5-flash: free tier 15 req/min, 500 req/day — GA as of 2025
+const GEMINI_MODEL = 'gemini-2.5-flash'
 
 /**
  * Call Gemini 1.5 Flash (free tier: 15 req/min, 1500 req/day) to generate
