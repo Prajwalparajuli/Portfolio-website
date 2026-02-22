@@ -105,6 +105,195 @@ Output ONLY the 4 bullet points, one per line, with no numbering, no dashes, no 
     .slice(0, 4)
 }
 
+/** Shared low-level Gemini call */
+async function gemini(prompt: string, apiKey: string, maxTokens = 600): Promise<string> {
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.3, maxOutputTokens: maxTokens },
+      }),
+    }
+  )
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error((err as { error?: { message?: string } }).error?.message ?? `Gemini error ${res.status}`)
+  }
+  const data = await res.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] }
+  return data.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
+}
+
+/** Parse bullet lines from Gemini response */
+function parseBulletLines(text: string, limit = 4): string[] {
+  return text
+    .split('\n')
+    .map(l => l.trim().replace(/^[-•*\d.)\s]+/, ''))
+    .filter(l => l.length > 15)
+    .slice(0, limit)
+}
+
+/** AI-written summary using all portfolio context */
+async function callGeminiForSummary(
+  s: PortfolioSettings,
+  skills: Skill[],
+  projects: Project[],
+  expItems: ExperienceItem[],
+  apiKey: string
+): Promise<string> {
+  const edu = s.education[0]
+  const degree = edu ? `${edu.title} at ${edu.issuer} (${edu.date})` : ''
+  const topSkills = skills.slice(0, 8).map(sk => sk.name).join(', ')
+  const projTitles = projects.slice(0, 4).map(p => p.title).join(', ')
+  // Grab 1 bullet from each project item for context
+  const sampleBullets = expItems
+    .slice(0, 3)
+    .flatMap(it => it.bullets.slice(0, 1))
+    .filter(Boolean)
+    .join(' | ')
+
+  const prompt = `You are an expert resume writer for data science and AI/ML roles.
+
+Write a professional resume summary of exactly 3–4 sentences (70–100 words total). It must:
+1. Sentence 1: Lead with degree/title + institution + specialties (ML, NLP, deep learning, etc.)
+2. Sentence 2: Highlight core technical skills from the list below, naturally embedded
+3. Sentence 3: Include a concrete achievement or metric (use "[X]%" or "[metric]" placeholder if unknown)
+4. Sentence 4: End with the value/impact the candidate brings to employers
+Rules:
+- Write in third person, past/present tense — NO "I" or "My"
+- Use ATS keywords naturally (do not stuff)
+- Sound human and confident, not generic
+- NO phrases like "results-driven", "passionate team player", "hard worker"
+
+Candidate info:
+Education: ${degree || 'Not specified'}
+Location: ${s.location || 'Not specified'}
+Skills: ${topSkills}
+Projects: ${projTitles}
+Sample work context: ${sampleBullets || 'Not available'}
+
+Output ONLY the summary paragraph, no labels, no headings, no extra text.`
+
+  return (await gemini(prompt, apiKey, 300)).trim()
+}
+
+/** Rewrite a single bullet to be stronger */
+async function callGeminiImproveBullet(
+  bullet: string,
+  projectTitle: string,
+  tags: string[],
+  apiKey: string
+): Promise<string> {
+  const prompt = `You are an expert resume writer. Rewrite the following resume bullet to be stronger and more impactful.
+
+Requirements:
+1. Keep the same core content and facts — do NOT invent new numbers
+2. Improve the action verb if it is weak (use: Built, Engineered, Developed, Optimized, Analyzed, Evaluated, Deployed, Automated, Implemented…)
+3. Make the result/metric more specific if possible, otherwise add "[X]" placeholder
+4. Keep it 60–175 characters
+5. NEVER start with "I", "We", "Responsible for", "Leveraged", "Utilized"
+6. If the bullet is already excellent, return it unchanged
+
+Project: ${projectTitle}
+Technologies: ${tags.join(', ')}
+Original bullet: ${bullet}
+
+Output ONLY the improved bullet, one line, no extra text.`
+
+  return (await gemini(prompt, apiKey, 120)).trim().replace(/^[-•*\d.)\s]+/, '')
+}
+
+/** Generate a short subtitle for a project entry (the "— subtitle" part) */
+async function callGeminiForSubtitle(project: Project, apiKey: string): Promise<string> {
+  const cleanDesc = project.description
+    .replace(/<[^>]+>/g, ' ').replace(/&[a-z#0-9]+;/gi, ' ')
+    .replace(/https?:\/\/\S+/g, '').replace(/\s+/g, ' ').slice(0, 600).trim()
+
+  const prompt = `Generate a short subtitle (4–8 words) for this project that describes what type of system/pipeline/model it is. This will appear after an em-dash on a resume: "Project Title — [your subtitle]".
+
+Examples of good subtitles: "Hybrid ML Ranking Pipeline", "NLP Topic Modeling System", "Deep Learning Classification Model", "End-to-End Data Analysis Pipeline"
+
+Project title: ${project.title}
+Technologies: ${(project.tags ?? []).join(', ')}
+Description (excerpt): ${cleanDesc}
+
+Output ONLY the subtitle (4–8 words, no quotes, no punctuation at end).`
+
+  return (await gemini(prompt, apiKey, 40)).trim().replace(/^["']|["']$/g, '').replace(/\.$/, '')
+}
+
+/** Tailor entire resume to a job description — returns updated summary + per-entry bullets */
+async function callGeminiTailorToJD(
+  jd: string,
+  currentSummary: string,
+  expItems: ExperienceItem[],
+  projects: Project[],
+  skills: Skill[],
+  apiKey: string
+): Promise<{ summary: string; bullets: Record<number, string[]> }> {
+  // Build a compact snapshot of current resume content
+  const entriesSnapshot = expItems.map((it, i) => {
+    const title = it.kind === 'project'
+      ? (it.titleOverride || projects.find(p => p.id === it.projectId)?.title || '')
+      : it.role
+    const tags = it.kind === 'project'
+      ? (projects.find(p => p.id === it.projectId)?.tags ?? []).join(', ')
+      : ''
+    return `Entry ${i} — ${title} [${tags}]:\n${it.bullets.filter(Boolean).map(b => `  • ${b}`).join('\n')}`
+  }).join('\n\n')
+
+  const prompt = `You are an expert resume writer and ATS optimization specialist.
+
+Tailor the resume below to the job description provided. Your goal is to maximize keyword alignment and relevance without fabricating experience.
+
+RULES:
+1. Keep all facts truthful — use the same projects/roles, only rephrase bullets to emphasize relevant skills
+2. Rewrite the summary to open with keywords from the JD (naturally)
+3. For each project entry, rewrite bullets to emphasize skills mentioned in the JD
+4. Use exact phrases from the JD where they honestly apply (e.g. "machine learning pipelines", "cross-functional teams")
+5. Add "[X]" metric placeholders where numbers would strengthen a bullet
+6. Each bullet: 60–175 chars, past-tense action verb first
+7. Keep the same NUMBER of bullets per entry
+
+JOB DESCRIPTION:
+${jd.slice(0, 2000)}
+
+CURRENT SUMMARY:
+${currentSummary || '(none yet)'}
+
+CURRENT EXPERIENCE ENTRIES:
+${entriesSnapshot}
+
+SKILLS AVAILABLE: ${skills.slice(0, 12).map(s => s.name).join(', ')}
+
+Output as JSON exactly in this format (no markdown code block):
+{
+  "summary": "the rewritten summary paragraph",
+  "entries": [
+    { "index": 0, "bullets": ["bullet1", "bullet2", "bullet3", "bullet4"] },
+    ...one object per entry...
+  ]
+}`
+
+  const raw = (await gemini(prompt, apiKey, 1200)).trim()
+  // Strip markdown code fences if Gemini wraps it anyway
+  const jsonStr = raw.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim()
+
+  type TailorOutput = { summary?: string; entries?: { index?: number; bullets?: string[] }[] }
+  const parsed = JSON.parse(jsonStr) as TailorOutput
+
+  const bullets: Record<number, string[]> = {}
+  for (const entry of (parsed.entries ?? [])) {
+    if (typeof entry.index === 'number' && Array.isArray(entry.bullets)) {
+      bullets[entry.index] = entry.bullets.filter((b: string) => b.length > 5).slice(0, 5)
+    }
+  }
+
+  return { summary: parsed.summary?.trim() ?? currentSummary, bullets }
+}
+
 // ─── ScaledPreviewWrapper ─────────────────────────────────────────────────────
 
 /**
@@ -331,10 +520,12 @@ function ActionVerbChips({ onInsert }: ActionVerbChipsProps) {
 interface BulletListEditorProps {
   bullets: string[]
   onChange: (bullets: string[]) => void
+  onImproveBullet?: (index: number, bullet: string) => Promise<void>
 }
 
-function BulletListEditor({ bullets, onChange }: BulletListEditorProps) {
+function BulletListEditor({ bullets, onChange, onImproveBullet }: BulletListEditorProps) {
   const textareaRefs = useRef<(HTMLTextAreaElement | null)[]>([])
+  const [improvingIdx, setImprovingIdx] = useState<number | null>(null)
 
   const update = (i: number, val: string) => {
     const next = [...bullets]; next[i] = val; onChange(next)
@@ -373,7 +564,7 @@ function BulletListEditor({ bullets, onChange }: BulletListEditorProps) {
         return (
           <div key={i} className="space-y-1">
             <ActionVerbChips onInsert={v => insertVerb(i, v)} />
-            <div className="flex gap-2 items-start">
+              <div className="flex gap-2 items-start">
               <span className="mt-2 text-muted-foreground text-xs select-none pt-1">•</span>
               <div className="flex-1 space-y-1">
                 <Textarea
@@ -388,9 +579,9 @@ function BulletListEditor({ bullets, onChange }: BulletListEditorProps) {
                   className="bg-black/40 border-white/10 text-sm flex-1 min-h-[52px] resize-none"
                   rows={2}
                 />
-                {/* Quality badges */}
+                {/* Quality badges + improve button */}
                 {score && (
-                  <div className="flex gap-1.5 flex-wrap pt-0.5">
+                  <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
                     <BulletQualityBadge label="Action verb" ok={score.hasVerb} />
                     <BulletQualityBadge label="Has metric" ok={score.hasMetric} warn={!score.hasMetric} />
                     <BulletQualityBadge
@@ -398,6 +589,23 @@ function BulletListEditor({ bullets, onChange }: BulletListEditorProps) {
                       ok={score.goodLength}
                       warn={b.length < 40}
                     />
+                    {onImproveBullet && b.trim().length > 10 && (
+                      <button
+                        type="button"
+                        disabled={improvingIdx === i}
+                        onClick={async () => {
+                          setImprovingIdx(i)
+                          try { await onImproveBullet(i, b) } finally { setImprovingIdx(null) }
+                        }}
+                        className="ml-auto inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded-full border border-purple-600/40 text-purple-400 hover:border-purple-400 hover:text-purple-300 transition-colors"
+                        title="Ask Gemini to rewrite this bullet stronger"
+                      >
+                        {improvingIdx === i
+                          ? <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                          : <Sparkles className="h-2.5 w-2.5" />}
+                        {improvingIdx === i ? 'Improving…' : 'AI improve'}
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -431,6 +639,7 @@ interface ExperienceItemEditorProps {
 function ExperienceItemEditor({ item, projects, onUpdate, onRemove, index, geminiKey }: ExperienceItemEditorProps) {
   const [expanded, setExpanded] = useState(index === 0)
   const [suggesting, setSuggesting] = useState(false)
+  const [subtitling, setSubtitling] = useState(false)
   const [suggestError, setSuggestError] = useState<string | null>(null)
 
   const linkedProject = item.kind === 'project'
@@ -446,18 +655,38 @@ function ExperienceItemEditor({ item, projects, onUpdate, onRemove, index, gemin
     setSuggestError(null)
     setSuggesting(true)
     try {
-      let bullets: string[]
-      if (geminiKey) {
-        bullets = await callGeminiForBullets(linkedProject, geminiKey)
-      } else {
-        bullets = extractBulletsFromProject(linkedProject)
-      }
+      const bullets = geminiKey
+        ? await callGeminiForBullets(linkedProject, geminiKey)
+        : extractBulletsFromProject(linkedProject)
       onUpdate({ ...item, bullets })
     } catch (e) {
       setSuggestError(e instanceof Error ? e.message : 'Failed to generate bullets')
     } finally {
       setSuggesting(false)
     }
+  }
+
+  const handleAutoSubtitle = async () => {
+    if (!linkedProject || !geminiKey) return
+    setSubtitling(true)
+    try {
+      const subtitle = await callGeminiForSubtitle(linkedProject, geminiKey)
+      onUpdate({ ...item, subtitle })
+    } catch {
+      // silently ignore — subtitle is optional
+    } finally {
+      setSubtitling(false)
+    }
+  }
+
+  const handleImproveBullet = async (idx: number, bullet: string) => {
+    if (!geminiKey) return
+    const tags = linkedProject?.tags ?? []
+    const title = displayTitle
+    const improved = await callGeminiImproveBullet(bullet, title, tags, geminiKey)
+    const bullets = [...item.bullets]
+    bullets[idx] = improved
+    onUpdate({ ...item, bullets })
   }
 
   return (
@@ -495,11 +724,21 @@ function ExperienceItemEditor({ item, projects, onUpdate, onRemove, index, gemin
                 />
               </div>
               <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">Subtitle <span className="opacity-50">(after em-dash, e.g. "Hybrid ML Ranking Pipeline")</span></Label>
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs text-muted-foreground">Subtitle <span className="opacity-50">(after em-dash)</span></Label>
+                  {geminiKey && linkedProject && (
+                    <Button type="button" variant="ghost" size="sm" disabled={subtitling}
+                      onClick={handleAutoSubtitle}
+                      className="gap-1 text-[10px] h-5 px-1.5 text-purple-400 hover:text-purple-300">
+                      {subtitling ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Sparkles className="h-2.5 w-2.5" />}
+                      {subtitling ? 'Writing…' : 'AI generate'}
+                    </Button>
+                  )}
+                </div>
                 <Input
                   value={item.subtitle ?? ''}
                   onChange={e => onUpdate({ ...item, subtitle: e.target.value })}
-                  placeholder="Short descriptor of the project type"
+                  placeholder='e.g. "Hybrid ML Ranking Pipeline"'
                   className="bg-black/20 border-white/10 text-sm"
                 />
               </div>
@@ -629,6 +868,7 @@ function ExperienceItemEditor({ item, projects, onUpdate, onRemove, index, gemin
             <BulletListEditor
               bullets={item.bullets}
               onChange={bullets => onUpdate({ ...item, bullets })}
+              onImproveBullet={geminiKey ? handleImproveBullet : undefined}
             />
           </div>
         </div>
@@ -742,6 +982,11 @@ export function AdminResumeEditor() {
   const [saveMsg, setSaveMsg] = useState<string | null>(null)
   const [showPreview, setShowPreview] = useState(true)
   const [activeSection, setActiveSection] = useState<ResumeSection['type'] | null>(null)
+  const [summaryGenerating, setSummaryGenerating] = useState(false)
+  const [jdText, setJdText] = useState('')
+  const [tailoring, setTailoring] = useState(false)
+  const [tailorMsg, setTailorMsg] = useState<string | null>(null)
+  const [showJDPanel, setShowJDPanel] = useState(false)
 
   // Load all data
   useEffect(() => {
@@ -856,6 +1101,59 @@ export function AdminResumeEditor() {
     setTimeout(() => win.print(), 500)
   }
 
+  const handleGenerateSummary = async () => {
+    if (!resume || !settings || !GEMINI_KEY) return
+    setSummaryGenerating(true)
+    try {
+      const expItems = expSection?.items ?? []
+      const text = await callGeminiForSummary(settings, skills, projects, expItems, GEMINI_KEY)
+      updateSection('summary', { text })
+    } catch (e) {
+      // show error in save msg area
+      setSaveMsg(e instanceof Error ? e.message : 'Summary generation failed')
+      setTimeout(() => setSaveMsg(null), 5000)
+    } finally {
+      setSummaryGenerating(false)
+    }
+  }
+
+  const handleTailorToJD = async () => {
+    if (!resume || !GEMINI_KEY || !jdText.trim()) return
+    setTailoring(true)
+    setTailorMsg(null)
+    try {
+      const expItems = expSection?.items ?? []
+      const currentSummary = summSection?.text ?? ''
+      const { summary, bullets } = await callGeminiTailorToJD(
+        jdText, currentSummary, expItems, projects, skills, GEMINI_KEY
+      )
+      // Apply summary
+      updateSection('summary', { text: summary })
+      // Apply bullets per entry
+      setResume(prev => {
+        if (!prev) return prev
+        return {
+          ...prev,
+          sections: prev.sections.map(s => {
+            if (s.type !== 'experience') return s
+            return {
+              ...s,
+              items: s.items.map((it, i) =>
+                bullets[i] ? { ...it, bullets: bullets[i] } : it
+              ),
+            }
+          }),
+        }
+      })
+      setTailorMsg('Resume tailored! Review each section and fill in any [X] placeholders.')
+      setTimeout(() => setTailorMsg(null), 8000)
+    } catch (e) {
+      setTailorMsg(e instanceof Error ? `Error: ${e.message}` : 'Tailoring failed — try again')
+    } finally {
+      setTailoring(false)
+    }
+  }
+
   // Word count across all text content
   const wordCount = resume
     ? [
@@ -948,6 +1246,68 @@ export function AdminResumeEditor() {
       {/* ── Best Practices panel ─────────────────────────────────────────── */}
       <BestPracticesPanel />
 
+      {/* ── Tailor to Job Description ─────────────────────────────────────── */}
+      <div className="rounded-xl border border-white/10 bg-black/20 overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setShowJDPanel(o => !o)}
+          className="w-full flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-left hover:bg-white/5 transition-colors"
+        >
+          <Sparkles className={cn('h-4 w-4', GEMINI_KEY ? 'text-purple-400' : 'text-muted-foreground')} />
+          <span className={GEMINI_KEY ? 'text-white' : 'text-muted-foreground'}>
+            Tailor resume to a job description
+            {!GEMINI_KEY && <span className="ml-2 text-[10px] opacity-50">(requires Gemini API key)</span>}
+          </span>
+          <span className="ml-auto text-xs opacity-50">{showJDPanel ? 'hide' : 'show'}</span>
+        </button>
+        {showJDPanel && (
+          <div className="border-t border-white/10 px-4 pb-4 pt-3 space-y-3">
+            <p className="text-[11px] text-muted-foreground/70">
+              Paste the job description below. Gemini will rewrite your summary and all project bullets to emphasize the exact skills and keywords the employer wants — without fabricating experience.
+              <span className="text-yellow-400/70"> Review everything and fill in any [X] placeholders after.</span>
+            </p>
+            <Textarea
+              value={jdText}
+              onChange={e => setJdText(e.target.value)}
+              placeholder="Paste the full job description here…"
+              className="bg-black/40 border-white/10 min-h-[120px] text-sm resize-none"
+            />
+            <div className="flex items-center gap-3 flex-wrap">
+              <Button
+                type="button"
+                disabled={!GEMINI_KEY || tailoring || !jdText.trim() || !resume}
+                onClick={handleTailorToJD}
+                className={cn(
+                  'gap-2',
+                  GEMINI_KEY ? 'bg-purple-600 hover:bg-purple-500 text-white' : ''
+                )}
+                size="sm"
+              >
+                {tailoring
+                  ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Tailoring resume…</>
+                  : <><Sparkles className="h-3.5 w-3.5" /> Tailor resume with AI</>
+                }
+              </Button>
+              {tailorMsg && (
+                <p className={cn(
+                  'text-[11px] flex-1',
+                  tailorMsg.startsWith('Error') ? 'text-red-400' : 'text-green-400'
+                )}>{tailorMsg}</p>
+              )}
+            </div>
+            {!GEMINI_KEY && (
+              <p className="text-[11px] text-muted-foreground/50">
+                Add <code>VITE_GEMINI_API_KEY</code> to your <code>.env</code> to enable this feature.{' '}
+                <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer"
+                  className="text-purple-400 underline hover:text-white">
+                  Get a free key →
+                </a>
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+
       {/* Two-panel layout */}
       <div className={cn('gap-6', showPreview ? 'grid grid-cols-1 xl:grid-cols-2' : 'flex flex-col max-w-2xl')}>
         {/* ── Left: Editor ── */}
@@ -1008,14 +1368,26 @@ export function AdminResumeEditor() {
                   <span className="font-medium text-blue-300/80">Template:</span> [Degree/Title] with [context]. Skilled in [tools]. Achieved [metric] on [project]. Passionate about [value].
                 </div>
               </div>
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-2">
                 <Label className="text-xs text-muted-foreground">Your summary</Label>
-                <Button type="button" variant="ghost" size="sm"
-                  className="gap-1 text-[11px] h-6 px-2 text-muted-foreground hover:text-white"
-                  onClick={() => updateSection('summary', { text: buildSummaryTemplate(settings, skills) })}
-                  title="Fill in a structured template you can edit">
-                  <Sparkles className="h-3 w-3" /> Generate template
-                </Button>
+                <div className="flex gap-1">
+                  {GEMINI_KEY ? (
+                    <Button type="button" variant="ghost" size="sm" disabled={summaryGenerating}
+                      className="gap-1 text-[11px] h-6 px-2 text-purple-400 hover:text-purple-300"
+                      onClick={handleGenerateSummary}
+                      title="Gemini writes a personalized summary from your projects, skills, and education">
+                      {summaryGenerating ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                      {summaryGenerating ? 'Writing…' : 'AI write summary'}
+                    </Button>
+                  ) : (
+                    <Button type="button" variant="ghost" size="sm"
+                      className="gap-1 text-[11px] h-6 px-2 text-muted-foreground hover:text-white"
+                      onClick={() => updateSection('summary', { text: buildSummaryTemplate(settings, skills) })}
+                      title="Fill in a structured template you can edit">
+                      <Sparkles className="h-3 w-3" /> Template
+                    </Button>
+                  )}
+                </div>
               </div>
               <Textarea
                 value={summSection?.text || ''}
