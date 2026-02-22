@@ -46,6 +46,8 @@ jobs:
           VITE_ADMIN_PATH: ${{ vars.VITE_ADMIN_PATH }}
           VITE_ADMIN_SECRET_KEY: ${{ secrets.VITE_ADMIN_SECRET_KEY }}
           VITE_CONTACT_EMAIL: ${{ vars.VITE_CONTACT_EMAIL }}
+          # Optional: Gemini AI for resume bullet writing (free — get key at aistudio.google.com)
+          VITE_GEMINI_API_KEY: ${{ secrets.VITE_GEMINI_API_KEY }}
         run: npm run build
 
       - name: Fix SPA 404 (admin, deep links)

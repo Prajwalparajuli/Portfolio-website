@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import {
   Loader2, Plus, Trash2, GripVertical, Eye, Save,
   ChevronDown, ChevronUp, FileText, Printer, Info, Sparkles,
-  BookOpen, CheckCircle2, XCircle, AlertCircle
+  BookOpen, CheckCircle2, XCircle, AlertCircle, Key, ExternalLink
 } from 'lucide-react'
 import {
   getSettings, getAllProjects, getSkills,
@@ -23,8 +23,120 @@ import {
   ProjectExperienceItem, CustomExperienceItem,
   makeDefaultResumeContent
 } from '@/types/resume'
-import { ResumePreview } from '@/components/admin/ResumePreview'
+import { ResumePreview, PAPER_W, PAPER_H } from '@/components/admin/ResumePreview'
 import { cn } from '@/lib/utils'
+
+// ─── Gemini API ───────────────────────────────────────────────────────────────
+
+const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY as string | undefined
+const GEMINI_MODEL = 'gemini-1.5-flash'
+
+/**
+ * Call Gemini 1.5 Flash (free tier: 15 req/min, 1500 req/day) to generate
+ * four STAR-formula resume bullets for a project.
+ *
+ * Prompt engineering follows Columbia Career Ed + Teal + Resumly best practices:
+ *  - Past-tense action verb first
+ *  - [Verb] + [What + tools/scale] + [Quantified result]
+ *  - [X] placeholder where metrics are unknown
+ *  - 60–175 chars each; no "I", "We", "Responsible for"
+ */
+async function callGeminiForBullets(project: Project, apiKey: string): Promise<string[]> {
+  // Clean the description to reduce noise / token cost
+  const cleanDesc = project.description
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&[a-z#0-9]+;/gi, ' ')
+    .replace(/https?:\/\/\S+/g, '')
+    .replace(/```[\s\S]*?```/g, '')
+    .replace(/`[^`]+`/g, '')
+    .replace(/#{1,6}\s+/g, '')
+    .replace(/\*{1,3}([^*\n]+)\*{1,3}/g, '$1')
+    .replace(/\|.*\|/g, '')
+    .replace(/\s+/g, ' ')
+    .slice(0, 1800)
+    .trim()
+
+  const tags = (project.tags ?? []).join(', ') || 'Python'
+
+  const prompt = `You are an expert resume writer for data science and software engineering roles. Your bullets are used on real resumes sent to top companies and must pass ATS screening.
+
+Generate exactly 4 resume bullet points for the project below. Each bullet must:
+1. Start with a strong PAST-TENSE action verb (Built, Developed, Engineered, Designed, Optimized, Analyzed, Evaluated, Implemented, Deployed, Processed, Constructed, Automated…)
+2. Follow the STAR formula: [Verb] + [What you did + tools/tech + scale] + [quantified result or outcome]
+3. Use "[X]" or "[X]%" as a placeholder where specific metrics are not in the description — the user will fill these in
+4. Be 60–175 characters each (ATS and recruiter sweet spot)
+5. Cover these 4 aspects IN ORDER:
+   • Bullet 1 — WHAT was built: the system/model/pipeline + core algorithms + tech stack
+   • Bullet 2 — DATA SCALE: dataset size, sources, preprocessing, feature engineering
+   • Bullet 3 — METHODOLOGY: model selection/comparison, validation, training approach
+   • Bullet 4 — RESULTS/DEPLOYMENT: accuracy/metric achieved + how it was deployed, evaluated, or presented
+6. NEVER start with "I", "We", "Responsible for", "Helped", "Utilized", "Leveraged", or "Used X to…"
+7. Use specific numbers already in the description if you see them (e.g. "3.4M+ orders", "493 subjects", "95% accuracy")
+
+Project title: ${project.title}
+Technologies: ${tags}
+Description: ${cleanDesc}
+
+Output ONLY the 4 bullet points, one per line, with no numbering, no dashes, no bullets, no extra commentary.`
+
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.25, maxOutputTokens: 600 },
+      }),
+    }
+  )
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error((err as { error?: { message?: string } }).error?.message ?? `Gemini error ${res.status}`)
+  }
+  const data = await res.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] }
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
+
+  return text
+    .split('\n')
+    .map(l => l.trim().replace(/^[-•*\d.)\s]+/, ''))
+    .filter(l => l.length > 15)
+    .slice(0, 4)
+}
+
+// ─── ScaledPreviewWrapper ─────────────────────────────────────────────────────
+
+/**
+ * Renders children at exactly PAPER_W wide, then CSS-scales them to fit the
+ * container. This is the same technique Canva/Zety/Kickresume use so that
+ * the preview is WYSIWYG — identical to the printed output.
+ */
+function ScaledPreviewWrapper({ children }: { children: React.ReactNode }) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [scale, setScale] = useState(1)
+
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const update = () => {
+      const w = el.getBoundingClientRect().width
+      setScale(Math.min(1, w / PAPER_W))
+    }
+    update()
+    const ro = new ResizeObserver(update)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  return (
+    <div ref={containerRef} style={{ width: '100%', overflow: 'hidden', position: 'relative', height: PAPER_H * scale }}>
+      <div style={{ width: PAPER_W, transformOrigin: 'top left', transform: `scale(${scale})` }}>
+        {children}
+      </div>
+    </div>
+  )
+}
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -313,10 +425,13 @@ interface ExperienceItemEditorProps {
   onUpdate: (item: ExperienceItem) => void
   onRemove: () => void
   index: number
+  geminiKey?: string
 }
 
-function ExperienceItemEditor({ item, projects, onUpdate, onRemove, index }: ExperienceItemEditorProps) {
+function ExperienceItemEditor({ item, projects, onUpdate, onRemove, index, geminiKey }: ExperienceItemEditorProps) {
   const [expanded, setExpanded] = useState(index === 0)
+  const [suggesting, setSuggesting] = useState(false)
+  const [suggestError, setSuggestError] = useState<string | null>(null)
 
   const linkedProject = item.kind === 'project'
     ? projects.find(p => p.id === item.projectId) ?? null
@@ -326,10 +441,23 @@ function ExperienceItemEditor({ item, projects, onUpdate, onRemove, index }: Exp
     ? (item.titleOverride || linkedProject?.title || 'Untitled project')
     : (item.role || 'Custom experience')
 
-  const handleSuggestBullets = () => {
+  const handleSuggestBullets = async () => {
     if (!linkedProject) return
-    const suggested = extractBulletsFromProject(linkedProject)
-    onUpdate({ ...item, bullets: suggested })
+    setSuggestError(null)
+    setSuggesting(true)
+    try {
+      let bullets: string[]
+      if (geminiKey) {
+        bullets = await callGeminiForBullets(linkedProject, geminiKey)
+      } else {
+        bullets = extractBulletsFromProject(linkedProject)
+      }
+      onUpdate({ ...item, bullets })
+    } catch (e) {
+      setSuggestError(e instanceof Error ? e.message : 'Failed to generate bullets')
+    } finally {
+      setSuggesting(false)
+    }
   }
 
   return (
@@ -471,9 +599,9 @@ function ExperienceItemEditor({ item, projects, onUpdate, onRemove, index }: Exp
           )}
 
           <div className="space-y-1">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between flex-wrap gap-1">
               <Label className="text-xs text-muted-foreground">
-                Bullet points <span className="opacity-60">(2–4 recommended, action verbs + metrics)</span>
+                Bullet points <span className="opacity-60">(3–4 recommended)</span>
               </Label>
               {linkedProject && (
                 <Button
@@ -481,14 +609,23 @@ function ExperienceItemEditor({ item, projects, onUpdate, onRemove, index }: Exp
                   variant="ghost"
                   size="sm"
                   onClick={handleSuggestBullets}
-                  className="gap-1 text-[11px] h-6 px-2 text-muted-foreground hover:text-white"
-                  title="Re-extract clean bullet suggestions from project description"
+                  disabled={suggesting}
+                  className={cn(
+                    'gap-1 text-[11px] h-6 px-2 hover:text-white',
+                    geminiKey ? 'text-purple-400 hover:text-purple-300' : 'text-muted-foreground'
+                  )}
+                  title={geminiKey ? 'Generate bullets using Gemini AI (free)' : 'Extract bullets from project description (no AI key set)'}
                 >
-                  <Sparkles className="h-3 w-3" />
-                  Suggest from description
+                  {suggesting
+                    ? <Loader2 className="h-3 w-3 animate-spin" />
+                    : <Sparkles className="h-3 w-3" />}
+                  {geminiKey ? 'AI write bullets' : 'Suggest bullets'}
                 </Button>
               )}
             </div>
+            {suggestError && (
+              <p className="text-[11px] text-red-400">{suggestError}</p>
+            )}
             <BulletListEditor
               bullets={item.bullets}
               onChange={bullets => onUpdate({ ...item, bullets })}
@@ -967,6 +1104,7 @@ export function AdminResumeEditor() {
                   index={i}
                   onUpdate={updated => updateExpItem(i, updated)}
                   onRemove={() => removeExpItem(i)}
+                  geminiKey={GEMINI_KEY}
                 />
               ))}
 
@@ -1069,24 +1207,48 @@ export function AdminResumeEditor() {
         {/* ── Right: Interactive Preview ── */}
         {showPreview && (
           <div className="sticky top-4 self-start space-y-2">
+            {/* Gemini key notice */}
+            {!GEMINI_KEY && (
+              <div className="rounded-lg border border-purple-800/40 bg-purple-950/20 px-3 py-2 text-[11px] text-purple-300/80 flex items-start gap-2">
+                <Key className="h-3.5 w-3.5 shrink-0 mt-0.5 text-purple-400" />
+                <span>
+                  Add <code className="text-purple-200">VITE_GEMINI_API_KEY</code> to your <code className="text-purple-200">.env</code> to unlock AI bullet writing (free — 1,500 calls/day).{' '}
+                  <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer"
+                    className="underline text-purple-300 inline-flex items-center gap-0.5 hover:text-white">
+                    Get free key <ExternalLink className="h-2.5 w-2.5" />
+                  </a>
+                </span>
+              </div>
+            )}
+            {GEMINI_KEY && (
+              <div className="rounded-lg border border-green-800/40 bg-green-950/20 px-3 py-2 text-[11px] text-green-300/80 flex items-center gap-2">
+                <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-green-400" />
+                Gemini AI connected — click "AI write bullets" on any project entry.
+              </div>
+            )}
+
             {/* edit mode hint */}
             <div className="flex items-center gap-2 px-1">
               <span className="inline-flex items-center gap-1.5 text-[11px] text-blue-400/80 font-mono">
                 <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
-                Click any text in the preview to edit it inline
+                Click any text in the preview to edit inline · WYSIWYG scale
               </span>
             </div>
-            <div className="rounded-xl border border-white/10 overflow-hidden bg-white shadow-2xl">
-              <ResumePreview
-                resume={resume}
-                settings={settings}
-                projects={projects}
-                skills={skills}
-                onUpdate={setResume}
-              />
+
+            {/* Scaled preview — renders at exact print dimensions */}
+            <div className="rounded-xl border border-white/15 overflow-hidden shadow-2xl">
+              <ScaledPreviewWrapper>
+                <ResumePreview
+                  resume={resume}
+                  settings={settings}
+                  projects={projects}
+                  skills={skills}
+                  onUpdate={setResume}
+                />
+              </ScaledPreviewWrapper>
             </div>
             <p className="text-[11px] text-muted-foreground/60 text-center">
-              Edits sync with the left panel · use Print / PDF to export
+              Preview is 1:1 with the printed PDF · edits sync with left panel
             </p>
           </div>
         )}

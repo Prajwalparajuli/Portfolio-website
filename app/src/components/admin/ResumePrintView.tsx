@@ -47,7 +47,6 @@ export function ResumePrintView() {
         settings={data.settings}
         projects={data.projects}
         skills={data.skills}
-        printMode
       />
     </>
   )
