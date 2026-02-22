@@ -1,0 +1,480 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 4%;
+    --foreground: 0 0% 98%;
+    --accent-hue: 217;
+    --accent-saturation: 70%;
+    --accent-lightness: 55%;
+  }
+
+  .light {
+    --background: 0 0% 98%;
+    --foreground: 0 0% 4%;
+    --card: 0 0% 96%;
+    --card-foreground: 0 0% 4%;
+    --popover: 0 0% 96%;
+    --popover-foreground: 0 0% 4%;
+    --primary: 0 0% 9%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 0 0% 92%;
+    --secondary-foreground: 0 0% 9%;
+    --muted: 0 0% 90%;
+    --muted-foreground: 0 0% 45%;
+    --accent: 0 0% 92%;
+    --accent-foreground: 0 0% 9%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 0 0% 90%;
+    --input: 0 0% 90%;
+    --ring: 0 0% 9%;
+  }
+
+  :root:not(.light) {
+    --card: 0 0% 6%;
+    --card-foreground: 0 0% 98%;
+    --popover: 0 0% 6%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 0 0% 98%;
+    --primary-foreground: 0 0% 4%;
+    --secondary: 0 0% 12%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 0 0% 15%;
+    --muted-foreground: 0 0% 60%;
+    --accent: 0 0% 15%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 0 0% 15%;
+    --input: 0 0% 15%;
+    --ring: 0 0% 80%;
+    --radius: 0.75rem;
+    --sidebar-background: 0 0% 4%;
+    --sidebar-foreground: 0 0% 98%;
+    --sidebar-primary: 0 0% 98%;
+    --sidebar-primary-foreground: 0 0% 4%;
+    --sidebar-accent: 0 0% 15%;
+    --sidebar-accent-foreground: 0 0% 98%;
+    --sidebar-border: 0 0% 15%;
+    --sidebar-ring: 0 0% 80%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply text-foreground antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+  html:not(.light) body {
+    background-color: #0a0a0a;
+  }
+  .light body {
+    background-color: hsl(var(--background));
+  }
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+/* Custom scrollbar - dark theme default */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0a0a0a;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #27272a;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #3f3f46;
+}
+
+/* Light theme scrollbar */
+.light ::-webkit-scrollbar-track {
+  background: #f4f4f5;
+}
+
+.light ::-webkit-scrollbar-thumb {
+  background: #d4d4d8;
+}
+
+.light ::-webkit-scrollbar-thumb:hover {
+  background: #a1a1aa;
+}
+
+/* Selection color */
+::selection {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.light ::selection {
+  background: rgba(0, 0, 0, 0.12);
+}
+
+/* Glassmorphism utilities */
+.glass {
+  @apply bg-black/40 backdrop-blur-md border border-white/10;
+}
+
+.glass-strong {
+  @apply bg-black/60 backdrop-blur-xl border border-white/10;
+}
+
+.light .glass {
+  @apply bg-white/20 backdrop-blur-md border border-black/10;
+}
+
+.light .glass-strong {
+  @apply bg-white/40 backdrop-blur-xl border border-black/10;
+}
+
+/* Dock icons: visible in both themes */
+.dock-item-inner {
+  @apply bg-white/10 hover:bg-white/20;
+}
+
+.light .dock-item-inner {
+  @apply bg-black/10 hover:bg-black/15;
+}
+
+.dock-divider {
+  @apply bg-white/20;
+}
+
+.light .dock-divider {
+  @apply bg-black/15;
+}
+
+.dock-tooltip {
+  @apply bg-zinc-900 border-white/20 text-white;
+}
+
+.light .dock-tooltip {
+  @apply bg-zinc-800 border-black/10 text-white;
+}
+
+/* Gradient text - dark theme */
+.gradient-text {
+  @apply bg-gradient-to-r from-white via-white/90 to-white/70 bg-clip-text text-transparent;
+}
+
+/* Light theme: dark gradient so title is visible */
+.light .gradient-text {
+  @apply bg-gradient-to-r from-neutral-800 via-neutral-700 to-neutral-600 bg-clip-text text-transparent;
+}
+
+/* Accent-aware gradient (when accent is set) */
+.gradient-text-accent {
+  background: linear-gradient(
+    90deg,
+    hsl(var(--accent-hue), var(--accent-saturation), var(--accent-lightness)),
+    hsl(var(--accent-hue), var(--accent-saturation), calc(var(--accent-lightness) - 10%)),
+    hsl(var(--accent-hue), var(--accent-saturation), calc(var(--accent-lightness) - 20%))
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.light .gradient-text-accent {
+  background: linear-gradient(
+    90deg,
+    hsl(var(--accent-hue), var(--accent-saturation), 40%),
+    hsl(var(--accent-hue), var(--accent-saturation), 35%),
+    hsl(var(--accent-hue), var(--accent-saturation), 30%)
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.accent-border {
+  border-color: hsl(var(--accent-hue), var(--accent-saturation), var(--accent-lightness));
+}
+
+.accent-bg {
+  background-color: hsl(var(--accent-hue), var(--accent-saturation), var(--accent-lightness));
+}
+
+/* Glow effects */
+.glow {
+  box-shadow: 0 0 40px rgba(255, 255, 255, 0.1);
+}
+
+.glow-strong {
+  box-shadow: 0 0 60px rgba(255, 255, 255, 0.15);
+}
+
+/* Mesh gradient background */
+.mesh-gradient {
+  background: 
+    radial-gradient(at 40% 20%, rgba(120, 119, 198, 0.15) 0px, transparent 50%),
+    radial-gradient(at 80% 0%, rgba(49, 130, 206, 0.1) 0px, transparent 50%),
+    radial-gradient(at 0% 50%, rgba(120, 119, 198, 0.1) 0px, transparent 50%),
+    radial-gradient(at 80% 50%, rgba(49, 130, 206, 0.08) 0px, transparent 50%),
+    radial-gradient(at 0% 100%, rgba(120, 119, 198, 0.1) 0px, transparent 50%);
+}
+
+/* TipTap editor styles */
+.ProseMirror {
+  outline: none;
+  min-height: 200px;
+}
+
+.ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: #52525b;
+  pointer-events: none;
+  height: 0;
+}
+
+.ProseMirror p {
+  margin-bottom: 0.75em;
+}
+
+.ProseMirror h1 {
+  font-size: 1.5em;
+  font-weight: 600;
+  margin-bottom: 0.5em;
+  margin-top: 1em;
+}
+
+.ProseMirror h2 {
+  font-size: 1.25em;
+  font-weight: 600;
+  margin-bottom: 0.5em;
+  margin-top: 1em;
+}
+
+.ProseMirror h3 {
+  font-size: 1.125em;
+  font-weight: 600;
+  margin-bottom: 0.5em;
+  margin-top: 0.75em;
+}
+
+.ProseMirror ul {
+  list-style-type: disc;
+  padding-left: 1.5em;
+  margin-bottom: 0.75em;
+}
+
+.ProseMirror ol {
+  list-style-type: decimal;
+  padding-left: 1.5em;
+  margin-bottom: 0.75em;
+}
+
+.ProseMirror li {
+  margin-bottom: 0.25em;
+}
+
+.ProseMirror strong {
+  font-weight: 600;
+}
+
+.ProseMirror em {
+  font-style: italic;
+}
+
+.ProseMirror blockquote {
+  border-left: 3px solid rgba(255, 255, 255, 0.2);
+  padding-left: 1em;
+  margin-left: 0;
+  margin-bottom: 0.75em;
+  font-style: italic;
+}
+
+.ProseMirror code {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 0.2em 0.4em;
+  border-radius: 0.25em;
+  font-family: monospace;
+  font-size: 0.9em;
+}
+
+.ProseMirror pre {
+  background: rgba(255, 255, 255, 0.05);
+  padding: 1em;
+  border-radius: 0.5em;
+  margin-bottom: 0.75em;
+  overflow-x: auto;
+}
+
+.ProseMirror pre code {
+  background: none;
+  padding: 0;
+}
+
+/* Prose styles for project content */
+.prose {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.prose h1, .prose h2, .prose h3, .prose h4 {
+  color: white;
+  font-weight: 600;
+  margin-top: 1.5em;
+  margin-bottom: 0.75em;
+}
+
+.prose p {
+  margin-bottom: 1em;
+  line-height: 1.75;
+}
+
+.prose ul, .prose ol {
+  padding-left: 1.5em;
+  margin-bottom: 1em;
+}
+
+.prose li {
+  margin-bottom: 0.25em;
+}
+
+.prose a {
+  color: #60a5fa;
+  text-decoration: underline;
+}
+
+.prose blockquote {
+  border-left: 3px solid rgba(255, 255, 255, 0.2);
+  padding-left: 1em;
+  font-style: italic;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.prose code {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 0.2em 0.4em;
+  border-radius: 0.25em;
+  font-family: monospace;
+}
+
+.prose pre {
+  background: rgba(255, 255, 255, 0.05);
+  padding: 1em;
+  border-radius: 0.5em;
+  overflow-x: auto;
+}
+
+/* Prose in light theme */
+.light .prose {
+  color: rgba(0, 0, 0, 0.85);
+}
+
+.light .prose h1, .light .prose h2, .light .prose h3, .light .prose h4 {
+  color: #171717;
+}
+
+.light .prose a {
+  color: #2563eb;
+}
+
+.light .prose blockquote {
+  border-left-color: rgba(0, 0, 0, 0.2);
+  color: rgba(0, 0, 0, 0.7);
+}
+
+.light .prose code {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.light .prose pre {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.light .ProseMirror blockquote {
+  border-left-color: rgba(0, 0, 0, 0.2);
+}
+
+.light .ProseMirror code {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.light .ProseMirror pre {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+/* Noise texture overlay for tactile glassmorphism */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  background-size: 256px 256px;
+}
+
+/* Animated gradient border angle property */
+@property --angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+
+@keyframes border-rotate {
+  to { --angle: 360deg; }
+}
+
+/* Marquee pause on hover */
+.marquee-track:hover {
+  animation-play-state: paused !important;
+}
+
+/* Custom cursor: hide native cursor on public pages */
+.cursor-custom { cursor: none; }
+.cursor-custom a,
+.cursor-custom button,
+.cursor-custom [role="button"],
+.cursor-custom input,
+.cursor-custom textarea,
+.cursor-custom select { cursor: none; }
+
+/* Print: hide UI, simple background */
+@media print {
+  body::before { display: none; }
+  .no-print,
+  [data-dock],
+  [data-back-to-top],
+  nav,
+  .fixed,
+  .sticky {
+    display: none !important;
+  }
+  body {
+    background: #fff;
+  }
+  .glass,
+  .glass-strong {
+    background: #f5f5f5;
+    border: 1px solid #e5e5e5;
+    backdrop-filter: none;
+  }
+  .gradient-text,
+  .gradient-text-accent {
+    color: #171717;
+    background: none;
+    -webkit-background-clip: unset;
+    background-clip: unset;
+  }
+  a[href]::after {
+    content: none;
+  }
+}

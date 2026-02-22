@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+app/node_modules/
+
+# Build
+app/dist/
+
+# Env and secrets
+.env
+.env.local
+.env.*.local
+app/.env
+app/.env.local
+app/.env.*.local
+
+# IDE and OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Logs and cache
+*.log
+npm-debug.log*
+.npm
+.cache/
+
+# TypeScript
+*.tsbuildinfo
+app/*.tsbuildinfo
