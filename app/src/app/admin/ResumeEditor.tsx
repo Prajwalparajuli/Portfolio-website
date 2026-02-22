@@ -8,7 +8,7 @@ import { Switch } from '@/components/ui/switch'
 import { Badge } from '@/components/ui/badge'
 import {
   Loader2, Plus, Trash2, GripVertical, Eye, Save,
-  ChevronDown, ChevronUp, FileText, Printer, Info
+  ChevronDown, ChevronUp, FileText, Printer, Info, Sparkles
 } from 'lucide-react'
 import {
   getSettings, getAllProjects, getSkills,
@@ -31,14 +31,6 @@ function countWords(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length
 }
 
-function sectionLabel(type: ResumeSection['type']): string {
-  switch (type) {
-    case 'summary': return 'Summary'
-    case 'education': return 'Education'
-    case 'experience': return 'Experience / Projects'
-    case 'skills': return 'Skills'
-  }
-}
 
 function buildContactLineFromSettings(s: PortfolioSettings): string {
   const parts: string[] = []
@@ -49,11 +41,59 @@ function buildContactLineFromSettings(s: PortfolioSettings): string {
   return parts.join(' · ')
 }
 
-function defaultBulletsFromProject(project: Project): string[] {
-  // Strip HTML tags from description and take first 3 sentences as bullet suggestions
-  const text = project.description.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
-  const sentences = text.split(/(?<=[.!?])\s+/)
-  return sentences.slice(0, 3).map(s => s.trim()).filter(Boolean)
+/**
+ * Extract 2–3 clean, concise bullet suggestions from a project description.
+ * Project descriptions are full TipTap HTML (often a README), so we must
+ * aggressively strip noise before extracting meaningful sentences.
+ */
+function extractBulletsFromProject(project: Project): string[] {
+  let text = project.description
+    // Remove HTML tags
+    .replace(/<[^>]+>/g, ' ')
+    // Remove HTML entities
+    .replace(/&[a-z#0-9]+;/gi, ' ')
+    // Remove emoji (supplementary + common symbols ranges)
+    .replace(/[\u{1F300}-\u{1FFFF}]/gu, '')
+    .replace(/[\u2600-\u27BF]/g, '')
+    // Remove bare URLs
+    .replace(/https?:\/\/\S+/g, '')
+    // Remove file paths  (anything/like/this.py)
+    .replace(/\S+\.(py|md|txt|js|ts|json|yaml|yml|sh|ipynb|env|csv)\b/gi, '')
+    // Remove CLI commands / code artifacts
+    .replace(/```[\s\S]*?```/g, '')
+    .replace(/`[^`]+`/g, '')
+    // Remove markdown headers
+    .replace(/#{1,6}\s+[^\n]*/g, '')
+    // Remove bold/italic markdown
+    .replace(/\*{1,3}([^*\n]+)\*{1,3}/g, '$1')
+    // Remove lines that look like section headings or list markers
+    .replace(/^([-*+]|\d+[.)]) .*/gm, '')
+    // Remove horizontal rules
+    .replace(/[-_*]{3,}/g, '')
+    // Collapse whitespace
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  const SKIP = [
+    /^(install|usage|getting started|table of contents|license|contributing|overview|features|requirements|prerequisites|run|demo|note)/i,
+    /^(npm |pip |git |docker |python |streamlit |run |bash |sh |curl )/i,
+    /\|.*\|/,         // table rows
+    /^[A-Z_]{3,}:/,  // ALL_CAPS: labels
+  ]
+
+  const sentences = text
+    .split(/(?<=[.!?])\s+(?=[A-Z"'])/)
+    .map(s => s.trim())
+    .filter(s => {
+      if (s.length < 25 || s.length > 200) return false
+      if (SKIP.some(re => re.test(s))) return false
+      return true
+    })
+
+  // Pick first 3 good sentences, truncated to 160 chars each
+  const bullets = sentences.slice(0, 3).map(s => s.length > 160 ? s.slice(0, 157) + '…' : s)
+  // Always return at least one empty slot so the editor shows something
+  return bullets.length > 0 ? bullets : ['']
 }
 
 // ─── sub-components ───────────────────────────────────────────────────────────
@@ -76,15 +116,16 @@ function BulletListEditor({ bullets, onChange }: BulletListEditorProps) {
     <div className="space-y-2">
       {bullets.map((b, i) => (
         <div key={i} className="flex gap-2 items-start">
-          <span className="mt-2.5 text-muted-foreground text-xs select-none">•</span>
-          <Input
+          <span className="mt-2 text-muted-foreground text-xs select-none pt-1">•</span>
+          <Textarea
             value={b}
             onChange={(e) => update(i, e.target.value)}
-            placeholder={`Bullet point ${i + 1}`}
-            className="bg-black/40 border-white/10 text-sm flex-1"
+            placeholder={`Bullet ${i + 1}: e.g. "Built X using Y, achieving Z% improvement"`}
+            className="bg-black/40 border-white/10 text-sm flex-1 min-h-[52px] resize-none"
+            rows={2}
           />
           <Button type="button" variant="ghost" size="sm" onClick={() => remove(i)}
-            className="text-destructive hover:text-destructive shrink-0 mt-0.5">
+            className="text-destructive hover:text-destructive shrink-0 mt-1 h-7 w-7 p-0">
             <Trash2 className="h-3 w-3" />
           </Button>
         </div>
@@ -110,9 +151,19 @@ interface ExperienceItemEditorProps {
 function ExperienceItemEditor({ item, projects, onUpdate, onRemove, index }: ExperienceItemEditorProps) {
   const [expanded, setExpanded] = useState(index === 0)
 
-  const title = item.kind === 'project'
-    ? (item.titleOverride || projects.find(p => p.id === item.projectId)?.title || 'Untitled project')
-    : item.role
+  const linkedProject = item.kind === 'project'
+    ? projects.find(p => p.id === item.projectId) ?? null
+    : null
+
+  const displayTitle = item.kind === 'project'
+    ? (item.titleOverride || linkedProject?.title || 'Untitled project')
+    : (item.role || 'Custom experience')
+
+  const handleSuggestBullets = () => {
+    if (!linkedProject) return
+    const suggested = extractBulletsFromProject(linkedProject)
+    onUpdate({ ...item, bullets: suggested })
+  }
 
   return (
     <div className="rounded-lg bg-black/40 border border-white/10">
@@ -124,7 +175,7 @@ function ExperienceItemEditor({ item, projects, onUpdate, onRemove, index }: Exp
         <Badge variant="outline" className="text-[10px] shrink-0">
           {item.kind === 'project' ? 'Project' : 'Custom'}
         </Badge>
-        <span className="text-sm font-medium flex-1 truncate">{title}</span>
+        <span className="text-sm font-medium flex-1 truncate">{displayTitle}</span>
         {expanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
         <Button type="button" variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); onRemove() }}
           className="text-destructive hover:text-destructive shrink-0 h-7 w-7 p-0">
@@ -137,11 +188,14 @@ function ExperienceItemEditor({ item, projects, onUpdate, onRemove, index }: Exp
           {item.kind === 'project' ? (
             <>
               <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">Title (override)</Label>
+                <Label className="text-xs text-muted-foreground">
+                  Title shown on resume
+                  {linkedProject && <span className="ml-1 opacity-50">(from "{linkedProject.title}")</span>}
+                </Label>
                 <Input
                   value={item.titleOverride}
                   onChange={e => onUpdate({ ...item, titleOverride: e.target.value })}
-                  placeholder={projects.find(p => p.id === item.projectId)?.title || 'Project title'}
+                  placeholder={linkedProject?.title || 'Project title'}
                   className="bg-black/20 border-white/10 text-sm"
                 />
               </div>
@@ -151,7 +205,7 @@ function ExperienceItemEditor({ item, projects, onUpdate, onRemove, index }: Exp
                   <Input
                     value={item.org}
                     onChange={e => onUpdate({ ...item, org: e.target.value })}
-                    placeholder="e.g. Personal, MIT, Google"
+                    placeholder="e.g. Personal, University of Houston"
                     className="bg-black/20 border-white/10 text-sm"
                   />
                 </div>
@@ -201,7 +255,24 @@ function ExperienceItemEditor({ item, projects, onUpdate, onRemove, index }: Exp
           )}
 
           <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground">Bullet points (2–4 recommended)</Label>
+            <div className="flex items-center justify-between">
+              <Label className="text-xs text-muted-foreground">
+                Bullet points <span className="opacity-60">(2–4 recommended, action verbs + metrics)</span>
+              </Label>
+              {linkedProject && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleSuggestBullets}
+                  className="gap-1 text-[11px] h-6 px-2 text-muted-foreground hover:text-white"
+                  title="Re-extract clean bullet suggestions from project description"
+                >
+                  <Sparkles className="h-3 w-3" />
+                  Suggest from description
+                </Button>
+              )}
+            </div>
             <BulletListEditor
               bullets={item.bullets}
               onChange={bullets => onUpdate({ ...item, bullets })}
@@ -272,10 +343,12 @@ export function AdminResumeEditor() {
     const newItem: ProjectExperienceItem = {
       kind: 'project',
       projectId: project.id,
-      titleOverride: '',
+      // Pre-fill with the real project title so it shows immediately
+      titleOverride: project.title,
       org: '',
       dateRange: '',
-      bullets: defaultBulletsFromProject(project),
+      // Smart extraction: clean bullets from description, not the full README
+      bullets: extractBulletsFromProject(project),
     }
     updateSection('experience', { items: [...expSection.items, newItem] })
   }
@@ -756,9 +829,9 @@ function generatePrintHTML(
         return `<div class="entry">
           <div class="entry-header">
             <span class="entry-title">${title}</span>
-            <span class="entry-meta">${item.org}</span>
             <span class="entry-date">${item.dateRange}</span>
           </div>
+          ${item.org ? `<div class="entry-org">${item.org}</div>` : ''}
           <ul>${item.bullets.filter(Boolean).map(b => `<li>${b}</li>`).join('')}</ul>
         </div>`
       }).join('')}
@@ -775,9 +848,9 @@ function generatePrintHTML(
       ${entries.map(e => `<div class="entry">
         <div class="entry-header">
           <span class="entry-title">${e.title}</span>
-          <span class="entry-meta">${e.issuer}</span>
           <span class="entry-date">${e.date}</span>
         </div>
+        <div class="entry-org">${e.issuer}</div>
       </div>`).join('')}
     </section>`
   })()
@@ -819,17 +892,16 @@ function generatePrintHTML(
     margin-bottom: 2px;
   }
   hr { border: none; border-top: 1px solid #000; margin-bottom: 6px; }
-  .entry { margin-bottom: 8px; }
+  .entry { margin-bottom: 9px; }
   .entry-header {
     display: flex;
     justify-content: space-between;
     align-items: baseline;
-    flex-wrap: wrap;
-    gap: 4px;
+    gap: 8px;
   }
   .entry-title { font-weight: bold; font-size: 10.5pt; }
-  .entry-meta { font-style: italic; font-size: 10pt; flex: 1; text-align: center; }
-  .entry-date { font-size: 10pt; white-space: nowrap; }
+  .entry-org { font-style: italic; color: #333; font-size: 10pt; margin-bottom: 2px; }
+  .entry-date { font-size: 10pt; white-space: nowrap; flex-shrink: 0; }
   ul { padding-left: 1.4em; margin-top: 4px; }
   li { margin-bottom: 2px; font-size: 10.5pt; }
   p { font-size: 10.5pt; margin-bottom: 4px; }

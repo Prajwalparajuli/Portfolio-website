@@ -76,12 +76,18 @@ export function ResumePreview({ resume, settings, projects, skills, printMode = 
                 ? (item.titleOverride || projects.find(p => p.id === (item as ProjectExperienceItem).projectId)?.title || 'Project')
                 : item.role
               return (
-                <div key={i} style={{ marginBottom: 9 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: 2 }}>
+                <div key={i} style={{ marginBottom: 10 }}>
+                  {/* Title + date on one line */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
                     <span style={{ fontWeight: 'bold', fontSize: 'inherit' }}>{title}</span>
-                    <span style={{ fontStyle: 'italic', fontSize: 'inherit', flex: 1, textAlign: 'center' }}>{item.org}</span>
-                    <span style={{ fontSize: 'inherit', whiteSpace: 'nowrap' }}>{item.dateRange}</span>
+                    <span style={{ fontSize: 'inherit', whiteSpace: 'nowrap', flexShrink: 0 }}>{item.dateRange}</span>
                   </div>
+                  {/* Org on second line, italic */}
+                  {item.org && (
+                    <div style={{ fontStyle: 'italic', color: '#333', fontSize: 'inherit', marginBottom: 2 }}>
+                      {item.org}
+                    </div>
+                  )}
                   {item.bullets.filter(Boolean).length > 0 && (
                     <ul style={{ paddingLeft: '1.2em', marginTop: 3 }}>
                       {item.bullets.filter(Boolean).map((b, j) => (
@@ -99,12 +105,14 @@ export function ResumePreview({ resume, settings, projects, skills, printMode = 
         {eduSection?.enabled && includedEdu.length > 0 && (
           <Section title="EDUCATION" printMode={printMode}>
             {includedEdu.map((entry, i) => (
-              <div key={i} style={{ marginBottom: 8 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: 2 }}>
+              <div key={i} style={{ marginBottom: 7 }}>
+                {/* Row 1: degree title (bold, left) + year (right) */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
                   <span style={{ fontWeight: 'bold', fontSize: 'inherit' }}>{entry.title}</span>
-                  <span style={{ fontStyle: 'italic', fontSize: 'inherit', flex: 1, textAlign: 'center' }}>{entry.issuer}</span>
-                  <span style={{ fontSize: 'inherit' }}>{entry.date}</span>
+                  <span style={{ fontSize: 'inherit', whiteSpace: 'nowrap', flexShrink: 0 }}>{entry.date}</span>
                 </div>
+                {/* Row 2: institution name (italic, left) */}
+                <div style={{ fontStyle: 'italic', color: '#333', fontSize: 'inherit' }}>{entry.issuer}</div>
               </div>
             ))}
           </Section>
