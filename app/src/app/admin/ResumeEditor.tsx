@@ -1811,7 +1811,7 @@ function generatePrintHTML(
     background: #fff;
     max-width: 8.5in;
     margin: 0 auto;
-    padding: 0.5in 0.55in;
+    padding: 0.35in 0.55in 0.45in;
     line-height: 1.42;
   }
   header { text-align: center; margin-bottom: 12px; }
@@ -1847,7 +1847,7 @@ function generatePrintHTML(
   p { font-size: inherit; margin-bottom: 3px; }
   @media print {
     body { padding: 0; }
-    @page { size: letter; margin: 0.5in 0.55in; }
+    @page { size: letter; margin: 0.35in 0.55in 0.45in; }
   }
 </style>
 </head>

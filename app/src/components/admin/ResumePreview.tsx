@@ -27,9 +27,9 @@ const STYLE = {
   name: '17pt',
   head: '10pt',
   small: '9.5pt',
-  /** margins in px matching 0.5in / 0.55in */
-  padV: 48,   // 0.5in
-  padH: 53,   // 0.55in
+  padTop: 34,   // 0.35in — reduced to fit dense content on one page
+  padBottom: 43, // 0.45in
+  padH: 53,     // 0.55in left/right
   entryGap: 10,
   sectionGap: 12,
 } as const
@@ -203,7 +203,7 @@ export function ResumePreview({
     background: '#fff',
     width: PAPER_W,
     minHeight: PAPER_H,
-    padding: `${STYLE.padV}px ${STYLE.padH}px`,
+    padding: `${STYLE.padTop}px ${STYLE.padH}px ${STYLE.padBottom}px`,
     boxSizing: 'border-box',
   }
 
