@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -8,7 +8,8 @@ import { Switch } from '@/components/ui/switch'
 import { Badge } from '@/components/ui/badge'
 import {
   Loader2, Plus, Trash2, GripVertical, Eye, Save,
-  ChevronDown, ChevronUp, FileText, Printer, Info, Sparkles
+  ChevronDown, ChevronUp, FileText, Printer, Info, Sparkles,
+  BookOpen, CheckCircle2, XCircle, AlertCircle
 } from 'lucide-react'
 import {
   getSettings, getAllProjects, getSkills,
@@ -31,72 +32,189 @@ function countWords(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length
 }
 
-
 function buildContactLineFromSettings(s: PortfolioSettings): string {
   const parts: string[] = []
-  if (s.contact_email) parts.push(s.contact_email)
   if (s.location) parts.push(s.location)
+  if (s.contact_email) parts.push(s.contact_email)
   if (s.linkedin_url) parts.push(s.linkedin_url.replace(/^https?:\/\//, ''))
   if (s.github_url) parts.push(s.github_url.replace(/^https?:\/\//, ''))
-  return parts.join(' · ')
+  return parts.join('  ')
+}
+
+// ─── bullet quality ──────────────────────────────────────────────────────────
+
+// Strong past-tense action verbs that pass ATS and grab recruiters
+const ACTION_VERBS_BY_TYPE = {
+  Built: ['Built', 'Developed', 'Engineered', 'Designed', 'Implemented', 'Architected', 'Created'],
+  Analyzed: ['Analyzed', 'Evaluated', 'Investigated', 'Modeled', 'Assessed', 'Diagnosed'],
+  Improved: ['Optimized', 'Improved', 'Enhanced', 'Reduced', 'Increased', 'Accelerated', 'Boosted'],
+  Deployed: ['Deployed', 'Launched', 'Delivered', 'Shipped', 'Published', 'Automated', 'Integrated'],
+  Led: ['Led', 'Coordinated', 'Collaborated', 'Presented', 'Communicated'],
+}
+
+const ALL_ACTION_VERBS_FLAT = Object.values(ACTION_VERBS_BY_TYPE).flat()
+
+/**
+ * Score a single bullet for ATS / recruiter quality.
+ * Returns 3 booleans: hasVerb, hasMetric, goodLength
+ */
+function scoreBullet(b: string): { hasVerb: boolean; hasMetric: boolean; goodLength: boolean } {
+  const trimmed = b.trim()
+  const firstWord = trimmed.split(/\s+/)[0] ?? ''
+  const hasVerb = ALL_ACTION_VERBS_FLAT.some(v => firstWord.toLowerCase() === v.toLowerCase())
+    || /^[A-Z][a-z]+ed|[A-Z][a-z]+ed/.test(firstWord)  // any past-tense verb (ends in -ed or similar)
+  const hasMetric = /\d+[%+kKMBx]?|\d+\s*(percent|x|times|users|items|features|queries|ms|seconds|hours)|\$\d/.test(trimmed)
+  const goodLength = trimmed.length >= 40 && trimmed.length <= 175
+  return { hasVerb, hasMetric, goodLength }
 }
 
 /**
- * Extract 2–3 clean, concise bullet suggestions from a project description.
- * Project descriptions are full TipTap HTML (often a README), so we must
- * aggressively strip noise before extracting meaningful sentences.
+ * Generate STAR-structured bullet suggestions from a project.
+ * These follow the formula: [Action Verb] + [What you did] + [How/tools] + [Quantified Result].
+ * Uses the project description, tags, and title to populate the technical context.
+ * Metric placeholders are inserted so the user knows to fill them in.
  */
 function extractBulletsFromProject(project: Project): string[] {
-  let text = project.description
-    // Remove HTML tags
+  // ── Step 1: clean raw text ─────────────────────────────────────────────────
+  let raw = project.description
     .replace(/<[^>]+>/g, ' ')
-    // Remove HTML entities
     .replace(/&[a-z#0-9]+;/gi, ' ')
-    // Remove emoji (supplementary + common symbols ranges)
     .replace(/[\u{1F300}-\u{1FFFF}]/gu, '')
     .replace(/[\u2600-\u27BF]/g, '')
-    // Remove bare URLs
     .replace(/https?:\/\/\S+/g, '')
-    // Remove file paths  (anything/like/this.py)
     .replace(/\S+\.(py|md|txt|js|ts|json|yaml|yml|sh|ipynb|env|csv)\b/gi, '')
-    // Remove CLI commands / code artifacts
     .replace(/```[\s\S]*?```/g, '')
     .replace(/`[^`]+`/g, '')
-    // Remove markdown headers
     .replace(/#{1,6}\s+[^\n]*/g, '')
-    // Remove bold/italic markdown
     .replace(/\*{1,3}([^*\n]+)\*{1,3}/g, '$1')
-    // Remove lines that look like section headings or list markers
-    .replace(/^([-*+]|\d+[.)]) .*/gm, '')
-    // Remove horizontal rules
+    .replace(/\|.*\|/g, '')
     .replace(/[-_*]{3,}/g, '')
-    // Collapse whitespace
     .replace(/\s+/g, ' ')
     .trim()
 
   const SKIP = [
-    /^(install|usage|getting started|table of contents|license|contributing|overview|features|requirements|prerequisites|run|demo|note)/i,
-    /^(npm |pip |git |docker |python |streamlit |run |bash |sh |curl )/i,
-    /\|.*\|/,         // table rows
-    /^[A-Z_]{3,}:/,  // ALL_CAPS: labels
+    /^(install|usage|getting started|table of contents|license|contributing|requirements|prerequisites|demo|note|setup|run|bash|sh|npm|pip|git|docker|streamlit|curl)/i,
+    /^[A-Z_]{3,}:/,
   ]
 
-  const sentences = text
+  // ── Step 2: find good candidate sentences from description ─────────────────
+  const candidates = raw
     .split(/(?<=[.!?])\s+(?=[A-Z"'])/)
     .map(s => s.trim())
     .filter(s => {
-      if (s.length < 25 || s.length > 200) return false
+      if (s.length < 30 || s.length > 220) return false
       if (SKIP.some(re => re.test(s))) return false
+      if (/^(This|The project|I |We )/.test(s)) return false
       return true
     })
+    .map(s => s.length > 170 ? s.slice(0, 167) + '…' : s)
 
-  // Pick first 3 good sentences, truncated to 160 chars each
-  const bullets = sentences.slice(0, 3).map(s => s.length > 160 ? s.slice(0, 157) + '…' : s)
-  // Always return at least one empty slot so the editor shows something
-  return bullets.length > 0 ? bullets : ['']
+  // ── Step 3: extract tech stack from tags ──────────────────────────────────
+  const tags = (project.tags ?? []).slice(0, 5).join(', ')
+  const techStr = tags || 'Python'
+
+  // ── Step 4: pick up any numbers already in the description ────────────────
+  const numbersInDesc = raw.match(/\b\d[\d,.+kKMB%]*\b/g) ?? []
+  const bigNumbers = numbersInDesc.filter(n => parseFloat(n.replace(/,/g, '')) > 99)
+
+  // ── Step 5: build STAR-formula bullets ────────────────────────────────────
+  const results: string[] = []
+
+  // Bullet 1 — WHAT you built (pipeline / system bullet)
+  if (candidates[0]) {
+    // Ensure it starts with a past-tense verb
+    const first = candidates[0]
+    const startsWithVerb = ALL_ACTION_VERBS_FLAT.some(v => first.toLowerCase().startsWith(v.toLowerCase()))
+    results.push(startsWithVerb ? first : `Built ${first.charAt(0).toLowerCase() + first.slice(1)}`)
+  } else {
+    results.push(`Built [describe the system/model] using ${techStr}.`)
+  }
+
+  // Bullet 2 — DATA / SCALE bullet (with real numbers if found)
+  if (candidates[1]) {
+    results.push(candidates[1])
+  } else if (bigNumbers.length > 0) {
+    results.push(`Processed ${bigNumbers[0]}+ records/samples using ${techStr}, enabling [describe outcome].`)
+  } else {
+    results.push(`Processed and cleaned [X]+ rows of real-world data using ${techStr || 'Python'}, handling missing values, outliers, and feature engineering.`)
+  }
+
+  // Bullet 3 — RESULT / IMPACT bullet
+  if (candidates[2]) {
+    results.push(candidates[2])
+  } else {
+    const metric = bigNumbers[1] ?? '[X]%'
+    results.push(`Achieved ${metric} accuracy / improvement; deployed as [Streamlit app / REST API / notebook] and presented findings to [audience].`)
+  }
+
+  // Bullet 4 — VALIDATION / EVALUATION bullet (optional but recommended for DS)
+  if (candidates[3]) {
+    results.push(candidates[3])
+  }
+
+  return results.filter(Boolean).slice(0, 4)
+}
+
+// ─── summary template ─────────────────────────────────────────────────────────
+
+/**
+ * Generate a STAR-structured summary template from portfolio settings.
+ * Formula (best practice per Columbia / Resumly):
+ *   [Title] with [context]. Skilled in [tools]. [Achievement]. [Goal/value prop].
+ */
+function buildSummaryTemplate(s: PortfolioSettings, skills: Skill[]): string {
+  const topSkills = skills.slice(0, 5).map(sk => sk.name).join(', ')
+  const edu = s.education[0]
+  const degree = edu ? `${edu.title} candidate at ${edu.issuer}` : 'Data Science professional'
+  const location = s.location || ''
+  return [
+    `${degree}${location ? ` based in ${location}` : ''} with hands-on research and project experience in machine learning, deep learning, and NLP.`,
+    `Skilled in ${topSkills || 'Python, SQL, and machine learning frameworks'}, with a strong foundation in statistics, data wrangling, and end-to-end model development.`,
+    `Proven ability to transform complex datasets into actionable insights — achieving [X]% accuracy / [metric] on [project type].`,
+    `Passionate about building interpretable, production-ready AI solutions that drive measurable business impact.`,
+  ].join(' ')
 }
 
 // ─── sub-components ───────────────────────────────────────────────────────────
+
+// ─── BulletQualityBadge ───────────────────────────────────────────────────────
+
+function BulletQualityBadge({ label, ok, warn }: { label: string; ok: boolean; warn?: boolean }) {
+  const Icon = ok ? CheckCircle2 : warn ? AlertCircle : XCircle
+  return (
+    <span className={cn(
+      'inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded-full border font-medium',
+      ok ? 'border-green-600/40 text-green-400' :
+      warn ? 'border-yellow-600/40 text-yellow-400' :
+      'border-white/10 text-muted-foreground/50'
+    )}>
+      <Icon className="h-2.5 w-2.5" /> {label}
+    </span>
+  )
+}
+
+// ─── ActionVerbChips ──────────────────────────────────────────────────────────
+
+const QUICK_VERBS = ['Built', 'Developed', 'Engineered', 'Designed', 'Optimized', 'Analyzed', 'Deployed', 'Reduced', 'Increased', 'Led']
+
+interface ActionVerbChipsProps {
+  onInsert: (verb: string) => void
+}
+
+function ActionVerbChips({ onInsert }: ActionVerbChipsProps) {
+  return (
+    <div className="flex flex-wrap gap-1 mb-1.5">
+      {QUICK_VERBS.map(v => (
+        <button key={v} type="button" onClick={() => onInsert(v)}
+          className="text-[10px] px-1.5 py-0.5 rounded border border-white/10 text-muted-foreground hover:border-blue-500/50 hover:text-blue-400 transition-colors bg-black/30">
+          {v}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+// ─── BulletListEditor ─────────────────────────────────────────────────────────
 
 interface BulletListEditorProps {
   bullets: string[]
@@ -104,32 +222,81 @@ interface BulletListEditorProps {
 }
 
 function BulletListEditor({ bullets, onChange }: BulletListEditorProps) {
+  const textareaRefs = useRef<(HTMLTextAreaElement | null)[]>([])
+
   const update = (i: number, val: string) => {
-    const next = [...bullets]
-    next[i] = val
-    onChange(next)
+    const next = [...bullets]; next[i] = val; onChange(next)
   }
   const remove = (i: number) => onChange(bullets.filter((_, idx) => idx !== i))
   const add = () => onChange([...bullets, ''])
 
+  const insertVerb = (i: number, verb: string) => {
+    const cur = bullets[i] ?? ''
+    // If bullet is empty or just whitespace, set to verb + space
+    // If it starts with a word, replace first word
+    const trimmed = cur.trimStart()
+    const firstWordEnd = trimmed.search(/\s/)
+    if (!trimmed || firstWordEnd === -1) {
+      update(i, verb + (trimmed ? ' ' + trimmed.replace(/^\S+\s*/, '') : ' '))
+    } else {
+      update(i, verb + ' ' + trimmed.slice(firstWordEnd + 1))
+    }
+    textareaRefs.current[i]?.focus()
+  }
+
   return (
-    <div className="space-y-2">
-      {bullets.map((b, i) => (
-        <div key={i} className="flex gap-2 items-start">
-          <span className="mt-2 text-muted-foreground text-xs select-none pt-1">•</span>
-          <Textarea
-            value={b}
-            onChange={(e) => update(i, e.target.value)}
-            placeholder={`Bullet ${i + 1}: e.g. "Built X using Y, achieving Z% improvement"`}
-            className="bg-black/40 border-white/10 text-sm flex-1 min-h-[52px] resize-none"
-            rows={2}
-          />
-          <Button type="button" variant="ghost" size="sm" onClick={() => remove(i)}
-            className="text-destructive hover:text-destructive shrink-0 mt-1 h-7 w-7 p-0">
-            <Trash2 className="h-3 w-3" />
-          </Button>
-        </div>
-      ))}
+    <div className="space-y-3">
+      {/* Formula reminder */}
+      <div className="rounded-md bg-blue-950/30 border border-blue-800/30 px-3 py-2 text-[11px] text-blue-300/80">
+        <span className="font-semibold text-blue-300">Formula: </span>
+        <span className="text-blue-200/70">[Action Verb]</span>
+        {' + '}
+        <span className="text-blue-200/70">[What you did + tools/scale]</span>
+        {' + '}
+        <span className="text-blue-200/70">[Quantified result — use a number!]</span>
+      </div>
+
+      {bullets.map((b, i) => {
+        const score = b.trim() ? scoreBullet(b) : null
+        return (
+          <div key={i} className="space-y-1">
+            <ActionVerbChips onInsert={v => insertVerb(i, v)} />
+            <div className="flex gap-2 items-start">
+              <span className="mt-2 text-muted-foreground text-xs select-none pt-1">•</span>
+              <div className="flex-1 space-y-1">
+                <Textarea
+                  ref={el => { textareaRefs.current[i] = el }}
+                  value={b}
+                  onChange={e => update(i, e.target.value)}
+                  placeholder={i === 0
+                    ? 'Built [system/model] using [tech], processing [X]+ records to achieve [outcome].'
+                    : i === 1
+                    ? 'Engineered [feature] from [data source], reducing [metric] by [X]% through [method].'
+                    : 'Evaluated model using [metric]@k / F1 / accuracy — achieved [X]%; deployed as [app/API].'}
+                  className="bg-black/40 border-white/10 text-sm flex-1 min-h-[52px] resize-none"
+                  rows={2}
+                />
+                {/* Quality badges */}
+                {score && (
+                  <div className="flex gap-1.5 flex-wrap pt-0.5">
+                    <BulletQualityBadge label="Action verb" ok={score.hasVerb} />
+                    <BulletQualityBadge label="Has metric" ok={score.hasMetric} warn={!score.hasMetric} />
+                    <BulletQualityBadge
+                      label={score.goodLength ? 'Good length' : b.length < 40 ? 'Too short' : 'Too long'}
+                      ok={score.goodLength}
+                      warn={b.length < 40}
+                    />
+                  </div>
+                )}
+              </div>
+              <Button type="button" variant="ghost" size="sm" onClick={() => remove(i)}
+                className="text-destructive hover:text-destructive shrink-0 mt-1 h-7 w-7 p-0">
+                <Trash2 className="h-3 w-3" />
+              </Button>
+            </div>
+          </div>
+        )
+      })}
       {bullets.length < 5 && (
         <Button type="button" variant="ghost" size="sm" onClick={add}
           className="text-muted-foreground hover:text-white gap-1 text-xs h-7 px-2">
@@ -327,6 +494,100 @@ function ExperienceItemEditor({ item, projects, onUpdate, onRemove, index }: Exp
               onChange={bullets => onUpdate({ ...item, bullets })}
             />
           </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── BestPracticesPanel ───────────────────────────────────────────────────────
+
+function BestPracticesPanel() {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="rounded-xl border border-white/10 bg-black/20 overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-muted-foreground hover:text-white transition-colors text-left"
+      >
+        <BookOpen className="h-4 w-4 text-blue-400" />
+        <span>Resume writing best practices</span>
+        <span className="ml-auto text-xs opacity-50">{open ? 'hide' : 'show'}</span>
+      </button>
+      {open && (
+        <div className="border-t border-white/10 px-4 pb-4 pt-3 grid grid-cols-1 md:grid-cols-2 gap-4 text-[12px] text-muted-foreground">
+
+          {/* Bullet formula */}
+          <div className="space-y-2">
+            <h4 className="text-white font-semibold text-xs uppercase tracking-wider">Bullet Point Formula</h4>
+            <div className="rounded-md bg-blue-950/30 border border-blue-800/30 px-3 py-2 text-blue-200/80 font-mono text-[11px]">
+              [Action Verb] + [What] + [How / tools / scale] + [Metric]
+            </div>
+            <p className="leading-relaxed">Start with a <span className="text-white">past-tense action verb</span> (Built, Developed, Engineered, Optimized…). Describe <span className="text-white">what you did and with what tools or data</span>. End with a <span className="text-yellow-400 font-medium">number</span> — accuracy, dataset size, % improvement, user count, speed gain.</p>
+            <div className="space-y-1">
+              <p className="text-red-400/80 line-through">Used Python to make a recommendation model.</p>
+              <p className="text-green-400">Built a hybrid recommender (ALS + LightGBM) on 3.4M+ orders, achieving NDCG@10 of 0.82.</p>
+            </div>
+          </div>
+
+          {/* 4-bullet structure for DS projects */}
+          <div className="space-y-2">
+            <h4 className="text-white font-semibold text-xs uppercase tracking-wider">4-Bullet Structure for DS Projects</h4>
+            <ol className="space-y-1.5 list-none">
+              {[
+                ['1', 'What you built', 'The system/model + key algorithms or tech stack'],
+                ['2', 'Data & scale', 'Dataset size, source, preprocessing — show real-world messiness'],
+                ['3', 'Features / methodology', 'Feature engineering, model selection, validation approach'],
+                ['4', 'Result / deployment', 'Accuracy / metric + how it was deployed or presented'],
+              ].map(([n, title, desc]) => (
+                <li key={n} className="flex gap-2">
+                  <span className="rounded-full bg-blue-500/20 text-blue-300 w-4 h-4 text-[10px] flex items-center justify-center shrink-0 mt-0.5">{n}</span>
+                  <span><span className="text-white">{title}:</span> {desc}</span>
+                </li>
+              ))}
+            </ol>
+          </div>
+
+          {/* Summary formula */}
+          <div className="space-y-2">
+            <h4 className="text-white font-semibold text-xs uppercase tracking-wider">Summary Formula (70–100 words)</h4>
+            <ol className="space-y-1.5 list-none">
+              {[
+                ['1', 'Sentence 1', 'Title/degree + institution + years of experience + specialties'],
+                ['2', 'Sentence 2', 'Core tools + methodologies — mirror keywords from the job posting'],
+                ['3', 'Sentence 3', 'Your biggest result with a metric ("achieving X% accuracy on Y project")'],
+                ['4', 'Sentence 4', 'Value you bring / what you are passionate about building'],
+              ].map(([n, title, desc]) => (
+                <li key={n} className="flex gap-2">
+                  <span className="rounded-full bg-purple-500/20 text-purple-300 w-4 h-4 text-[10px] flex items-center justify-center shrink-0 mt-0.5">{n}</span>
+                  <span><span className="text-white">{title}:</span> {desc}</span>
+                </li>
+              ))}
+            </ol>
+          </div>
+
+          {/* ATS tips */}
+          <div className="space-y-2">
+            <h4 className="text-white font-semibold text-xs uppercase tracking-wider">ATS + Recruiter Tips</h4>
+            <ul className="space-y-1.5">
+              {[
+                ['✓', 'Use exact keywords from the job description (e.g. "LLM fine-tuning", "A/B testing")'],
+                ['✓', 'Every bullet must start with a capital past-tense verb — ATS parses the first word'],
+                ['✓', 'Include at least one number per bullet — % accuracy, dataset size, user count, time saved'],
+                ['✓', '50–175 characters per bullet — short enough for a 6-second recruiter scan'],
+                ['✓', '3–4 projects if no work experience; 1–2 if you have professional experience'],
+                ['✗', 'Never start with "I", "We", "Responsible for", "Helped with", or "Used X to…"'],
+                ['✗', 'Avoid vague adjectives: "great", "excellent", "various", "strong" — use metrics'],
+              ].map(([icon, tip], i) => (
+                <li key={i} className={cn('flex gap-1.5', icon === '✓' ? 'text-muted-foreground' : 'text-red-400/60')}>
+                  <span className={icon === '✓' ? 'text-green-400 shrink-0' : 'shrink-0'}>{icon}</span>
+                  <span>{tip}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
         </div>
       )}
     </div>
@@ -547,6 +808,9 @@ export function AdminResumeEditor() {
         </span>
       </div>
 
+      {/* ── Best Practices panel ─────────────────────────────────────────── */}
+      <BestPracticesPanel />
+
       {/* Two-panel layout */}
       <div className={cn('gap-6', showPreview ? 'grid grid-cols-1 xl:grid-cols-2' : 'flex flex-col max-w-2xl')}>
         {/* ── Left: Editor ── */}
@@ -599,15 +863,41 @@ export function AdminResumeEditor() {
             active={activeSection === 'summary'}
             onToggleActive={() => setActiveSection(s => s === 'summary' ? null : 'summary')}
           >
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">2–3 sentences, keyword-rich</Label>
+            <div className="space-y-2">
+              {/* Best practice reminder */}
+              <div className="rounded-md bg-blue-950/30 border border-blue-800/30 px-3 py-2 text-[11px] text-blue-300/80 space-y-0.5">
+                <div><span className="font-semibold text-blue-300">Best practice:</span> 3–4 sentences · 70–100 words · lead with degree/title · include 1 metric · end with value you bring</div>
+                <div className="text-blue-300/60">
+                  <span className="font-medium text-blue-300/80">Template:</span> [Degree/Title] with [context]. Skilled in [tools]. Achieved [metric] on [project]. Passionate about [value].
+                </div>
+              </div>
+              <div className="flex items-center justify-between">
+                <Label className="text-xs text-muted-foreground">Your summary</Label>
+                <Button type="button" variant="ghost" size="sm"
+                  className="gap-1 text-[11px] h-6 px-2 text-muted-foreground hover:text-white"
+                  onClick={() => updateSection('summary', { text: buildSummaryTemplate(settings, skills) })}
+                  title="Fill in a structured template you can edit">
+                  <Sparkles className="h-3 w-3" /> Generate template
+                </Button>
+              </div>
               <Textarea
                 value={summSection?.text || ''}
                 onChange={e => updateSection('summary', { text: e.target.value })}
-                placeholder="Results-driven Data Scientist with experience in…"
-                className="bg-black/40 border-white/10 min-h-[80px] text-sm resize-none"
+                placeholder="Data Science undergraduate at University of Houston–Downtown with research and project experience in ML, NLP, and deep learning. Skilled in Python, R, and SQL…"
+                className="bg-black/40 border-white/10 min-h-[90px] text-sm resize-none"
               />
-              <p className="text-[11px] text-muted-foreground/60">{countWords(summSection?.text || '')} words</p>
+              <div className="flex items-center gap-2">
+                <p className={cn(
+                  'text-[11px]',
+                  countWords(summSection?.text || '') < 40 ? 'text-yellow-400' :
+                  countWords(summSection?.text || '') > 120 ? 'text-red-400' : 'text-green-400'
+                )}>
+                  {countWords(summSection?.text || '')} words
+                  {countWords(summSection?.text || '') < 40 && ' — aim for 70–100'}
+                  {countWords(summSection?.text || '') > 120 && ' — trim to 70–100'}
+                  {countWords(summSection?.text || '') >= 40 && countWords(summSection?.text || '') <= 120 && ' ✓'}
+                </p>
+              </div>
             </div>
           </SectionCard>
 
