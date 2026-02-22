@@ -18,6 +18,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    environment: github-pages  # so build step can use your Environment secrets
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -36,9 +37,19 @@ jobs:
       - name: Build
         working-directory: app
         env:
-          # Project sites: https://username.github.io/REPO_NAME/
+          # GitHub Pages subpath (required)
           VITE_BASE: /${{ github.event.repository.name }}/
+          # From repo Settings → Secrets and variables → Actions (add these for Supabase, etc.)
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_UNSPLASH_ACCESS_KEY: ${{ secrets.VITE_UNSPLASH_ACCESS_KEY }}
+          VITE_ADMIN_PATH: ${{ vars.VITE_ADMIN_PATH }}
+          VITE_ADMIN_SECRET_KEY: ${{ secrets.VITE_ADMIN_SECRET_KEY }}
+          VITE_CONTACT_EMAIL: ${{ vars.VITE_CONTACT_EMAIL }}
         run: npm run build
+
+      - name: Fix SPA 404 (admin, deep links)
+        run: cp app/dist/index.html app/dist/404.html
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3

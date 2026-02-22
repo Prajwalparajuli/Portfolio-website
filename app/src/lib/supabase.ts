@@ -377,9 +377,12 @@ function parseEducation(value: string | undefined): EducationEntry[] {
 }
 
 function getDefaultSettings(): PortfolioSettings {
+  const contactEmail =
+    (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_CONTACT_EMAIL?.trim() ||
+    'your.email@example.com'
   return {
     bio: 'Data Scientist and AI Engineer passionate about building intelligent systems that solve real-world problems.',
-    contact_email: 'your.email@example.com',
+    contact_email: contactEmail,
     resume_url: '',
     linkedin_url: '',
     github_url: '',

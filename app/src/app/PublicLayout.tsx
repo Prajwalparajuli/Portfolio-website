@@ -10,9 +10,13 @@ import { useEffect, useState } from 'react'
 import { PortfolioSettings } from '@/types'
 import { getSettings } from '@/lib/supabase'
 
+const contactEmailDefault =
+  (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_CONTACT_EMAIL?.trim() ||
+  'your.email@example.com'
+
 const DEFAULT_SETTINGS: PortfolioSettings = {
   bio: 'Data Scientist and AI Engineer passionate about building intelligent systems that solve real-world problems.',
-  contact_email: 'your.email@example.com',
+  contact_email: contactEmailDefault,
   resume_url: '',
   linkedin_url: '',
   github_url: '',
