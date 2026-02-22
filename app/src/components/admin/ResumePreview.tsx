@@ -27,8 +27,8 @@ const STYLE = {
   name: '17pt',
   head: '10pt',
   small: '9.5pt',
-  padTop: 34,   // 0.35in — reduced to fit dense content on one page
-  padBottom: 43, // 0.45in
+  padTop: 34,   // 0.35in
+  padBottom: 34, // 0.35in
   padH: 53,     // 0.55in left/right
   entryGap: 10,
   sectionGap: 12,
