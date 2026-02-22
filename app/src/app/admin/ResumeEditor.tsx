@@ -199,13 +199,42 @@ function ExperienceItemEditor({ item, projects, onUpdate, onRemove, index }: Exp
                   className="bg-black/20 border-white/10 text-sm"
                 />
               </div>
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">Subtitle <span className="opacity-50">(after em-dash, e.g. "Hybrid ML Ranking Pipeline")</span></Label>
+                <Input
+                  value={item.subtitle ?? ''}
+                  onChange={e => onUpdate({ ...item, subtitle: e.target.value })}
+                  placeholder="Short descriptor of the project type"
+                  className="bg-black/20 border-white/10 text-sm"
+                />
+              </div>
               <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-1">
-                  <Label className="text-xs text-muted-foreground">Organization / Company</Label>
+                  <Label className="text-xs text-muted-foreground">Demo / Live URL</Label>
+                  <Input
+                    value={item.url ?? ''}
+                    onChange={e => onUpdate({ ...item, url: e.target.value })}
+                    placeholder="https://huggingface.co/…"
+                    className="bg-black/20 border-white/10 text-sm"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">GitHub URL</Label>
+                  <Input
+                    value={item.githubUrl ?? ''}
+                    onChange={e => onUpdate({ ...item, githubUrl: e.target.value })}
+                    placeholder="github.com/user/repo"
+                    className="bg-black/20 border-white/10 text-sm"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">Organization <span className="opacity-50">(optional)</span></Label>
                   <Input
                     value={item.org}
                     onChange={e => onUpdate({ ...item, org: e.target.value })}
-                    placeholder="e.g. Personal, University of Houston"
+                    placeholder="e.g. University of Houston"
                     className="bg-black/20 border-white/10 text-sm"
                   />
                 </div>
@@ -214,7 +243,7 @@ function ExperienceItemEditor({ item, projects, onUpdate, onRemove, index }: Exp
                   <Input
                     value={item.dateRange}
                     onChange={e => onUpdate({ ...item, dateRange: e.target.value })}
-                    placeholder="e.g. Jan 2024 – Present"
+                    placeholder="e.g. Sep 2025 – Nov 2025"
                     className="bg-black/20 border-white/10 text-sm"
                   />
                 </div>
@@ -243,13 +272,33 @@ function ExperienceItemEditor({ item, projects, onUpdate, onRemove, index }: Exp
                 </div>
               </div>
               <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">Date Range</Label>
+                <Label className="text-xs text-muted-foreground">Subtitle <span className="opacity-50">(optional, after em-dash)</span></Label>
                 <Input
-                  value={item.dateRange}
-                  onChange={e => onUpdate({ ...item, dateRange: e.target.value })}
-                  placeholder="e.g. Jun 2022 – Aug 2023"
+                  value={item.subtitle ?? ''}
+                  onChange={e => onUpdate({ ...item, subtitle: e.target.value })}
+                  placeholder="e.g. Research project, Internship"
                   className="bg-black/20 border-white/10 text-sm"
                 />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">URL <span className="opacity-50">(optional)</span></Label>
+                  <Input
+                    value={item.url ?? ''}
+                    onChange={e => onUpdate({ ...item, url: e.target.value })}
+                    placeholder="https://…"
+                    className="bg-black/20 border-white/10 text-sm"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">Date Range</Label>
+                  <Input
+                    value={item.dateRange}
+                    onChange={e => onUpdate({ ...item, dateRange: e.target.value })}
+                    placeholder="e.g. Jun 2022 – Aug 2023"
+                    className="bg-black/20 border-white/10 text-sm"
+                  />
+                </div>
               </div>
             </>
           )}
@@ -343,11 +392,14 @@ export function AdminResumeEditor() {
     const newItem: ProjectExperienceItem = {
       kind: 'project',
       projectId: project.id,
-      // Pre-fill with the real project title so it shows immediately
       titleOverride: project.title,
+      subtitle: '',
+      url: project.demo_url ?? '',
+      githubUrl: project.github_url
+        ? project.github_url.replace(/^https?:\/\//, '')
+        : '',
       org: '',
       dateRange: '',
-      // Smart extraction: clean bullets from description, not the full README
       bullets: extractBulletsFromProject(project),
     }
     updateSection('experience', { items: [...expSection.items, newItem] })
@@ -359,6 +411,8 @@ export function AdminResumeEditor() {
       kind: 'custom',
       id: crypto.randomUUID(),
       role: '',
+      subtitle: '',
+      url: '',
       org: '',
       dateRange: '',
       bullets: [''],
@@ -597,13 +651,23 @@ export function AdminResumeEditor() {
 
           {/* Experience / Projects section */}
           <SectionCard
-            label="Experience / Projects"
+            label="Projects / Experience"
             enabled={expSection?.enabled ?? true}
             onToggle={v => updateSection('experience', { enabled: v })}
             active={activeSection === 'experience'}
             onToggleActive={() => setActiveSection(s => s === 'experience' ? null : 'experience')}
           >
             <div className="space-y-3">
+              {/* Section heading override */}
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">Section heading on resume</Label>
+                <Input
+                  value={expSection?.sectionTitle ?? 'PROJECT'}
+                  onChange={e => updateSection('experience', { sectionTitle: e.target.value })}
+                  placeholder="PROJECT"
+                  className="bg-black/40 border-white/10 text-sm"
+                />
+              </div>
               {/* Existing items */}
               {expSection?.items.map((item, i) => (
                 <ExperienceItemEditor
@@ -805,42 +869,48 @@ function generatePrintHTML(
     ? skills
     : skills.filter(s => (skillsSection?.includedIds as string[] || []).includes(s.id))
 
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+
   const skillsHTML = (() => {
     if (!skillsSection?.enabled || includedSkills.length === 0) return ''
     if (skillsSection.groupByCategory) {
       const cats = [...new Set(includedSkills.map(s => s.category))]
       return `<section>
-        <h2>SKILLS</h2>
-        <hr/>
+        <h2>SKILLS</h2><hr/>
         ${cats.map(cat => {
           const catSkills = includedSkills.filter(s => s.category === cat)
-          return `<p><strong>${cat.charAt(0).toUpperCase() + cat.slice(1)}:</strong> ${catSkills.map(s => s.name).join(', ')}</p>`
+          return `<p>${esc(catSkills.map(s => s.name).join(', '))}</p>`
         }).join('')}
       </section>`
     }
     return `<section>
-      <h2>SKILLS</h2>
-      <hr/>
-      <p>${includedSkills.map(s => s.name).join(', ')}</p>
+      <h2>SKILLS</h2><hr/>
+      <p>${esc(includedSkills.map(s => s.name).join(', '))}</p>
     </section>`
   })()
 
   const expHTML = (() => {
     if (!expSection?.enabled || expSection.items.length === 0) return ''
+    const heading = expSection.sectionTitle || 'PROJECT'
     return `<section>
-      <h2>EXPERIENCE</h2>
-      <hr/>
+      <h2>${esc(heading)}</h2><hr/>
       ${expSection.items.map(item => {
         const title = item.kind === 'project'
-          ? (item.titleOverride || projects.find(p => p.id === item.projectId)?.title || 'Project')
-          : item.role
+          ? esc(item.titleOverride || projects.find(p => p.id === item.projectId)?.title || 'Project')
+          : esc(item.role)
+        const subtitle = item.subtitle ? ` &mdash; ${esc(item.subtitle)}` : ''
+        const urlLine = item.url ? `<div class="entry-url">${esc(item.url)}</div>` : ''
+        const githubPart = item.kind === 'project' && item.githubUrl ? esc(item.githubUrl) : ''
+        const orgPart = item.org ? esc(item.org) : ''
+        const sub2 = [githubPart, orgPart].filter(Boolean).join(' &bull; ')
+        const sub2Line = sub2 ? `<div class="entry-sub2">${sub2}</div>` : ''
         return `<div class="entry">
           <div class="entry-header">
-            <span class="entry-title">${title}</span>
-            <span class="entry-date">${item.dateRange}</span>
+            <span class="entry-title">${title}${subtitle}</span>
+            <span class="entry-date">${esc(item.dateRange)}</span>
           </div>
-          ${item.org ? `<div class="entry-org">${item.org}</div>` : ''}
-          <ul>${item.bullets.filter(Boolean).map(b => `<li>${b}</li>`).join('')}</ul>
+          ${urlLine}${sub2Line}
+          <ul>${item.bullets.filter(Boolean).map(b => `<li>${esc(b)}</li>`).join('')}</ul>
         </div>`
       }).join('')}
     </section>`
@@ -851,55 +921,67 @@ function generatePrintHTML(
     const entries = eduSection.includedIndices.map(i => settings.education[i]).filter(Boolean)
     if (entries.length === 0) return ''
     return `<section>
-      <h2>EDUCATION</h2>
-      <hr/>
+      <h2>EDUCATION</h2><hr/>
       ${entries.map(e => `<div class="entry">
         <div class="entry-header">
-          <span class="entry-title">${e.title}</span>
-          <span class="entry-date">${e.date}</span>
+          <span class="entry-title">${esc(e.title)}</span>
         </div>
-        <div class="entry-org">${e.issuer}</div>
+        <div class="entry-sub2">${esc(e.issuer)}${e.url ? ` &bull; <span style="color:#1a56db">${esc(e.url)}</span>` : ''} &bull; ${esc(e.date)}</div>
       </div>`).join('')}
     </section>`
   })()
 
   const summHTML = summSection?.enabled && summSection.text
-    ? `<section>
-        <h2>SUMMARY</h2>
-        <hr/>
-        <p>${summSection.text}</p>
-      </section>`
+    ? `<section><h2>SUMMARY</h2><hr/><p>${esc(summSection.text)}</p></section>`
     : ''
+
+  // Sections in the order defined by resume.sections
+  const sectionOrder = resume.sections
+    .filter(s => s.enabled)
+    .map(s => s.type)
+
+  const sectionMap: Record<string, string> = {
+    summary: summHTML,
+    experience: expHTML,
+    education: eduHTML,
+    skills: skillsHTML,
+  }
+  const orderedHTML = sectionOrder.map(t => sectionMap[t] ?? '').join('\n')
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
-<title>${resume.header.name} – Resume</title>
+<title>${esc(resume.header.name)} – Resume</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
     font-family: 'Times New Roman', Georgia, serif;
-    font-size: 11pt;
+    font-size: 10.5pt;
     color: #000;
     background: #fff;
     max-width: 8.5in;
     margin: 0 auto;
-    padding: 0.75in 0.75in;
-    line-height: 1.4;
+    padding: 0.5in 0.55in;
+    line-height: 1.42;
   }
-  header { text-align: center; margin-bottom: 14px; }
-  header h1 { font-size: 18pt; font-weight: bold; letter-spacing: 0.02em; }
-  header p { font-size: 9.5pt; color: #333; margin-top: 3px; }
-  section { margin-bottom: 12px; }
-  h2 {
-    font-size: 10.5pt;
+  header { text-align: center; margin-bottom: 12px; }
+  header h1 {
+    font-size: 17pt;
     font-weight: bold;
     text-transform: uppercase;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.04em;
+  }
+  header p { font-size: 9.5pt; color: #222; margin-top: 3px; }
+  section { margin-bottom: 10px; }
+  h2 {
+    font-size: 10pt;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
     margin-bottom: 2px;
   }
-  hr { border: none; border-top: 1px solid #000; margin-bottom: 6px; }
+  hr { border: none; border-top: 1px solid #000; margin-bottom: 5px; }
   .entry { margin-bottom: 9px; }
   .entry-header {
     display: flex;
@@ -907,27 +989,25 @@ function generatePrintHTML(
     align-items: baseline;
     gap: 8px;
   }
-  .entry-title { font-weight: bold; font-size: 10.5pt; }
-  .entry-org { font-style: italic; color: #333; font-size: 10pt; margin-bottom: 2px; }
-  .entry-date { font-size: 10pt; white-space: nowrap; flex-shrink: 0; }
-  ul { padding-left: 1.4em; margin-top: 4px; }
-  li { margin-bottom: 2px; font-size: 10.5pt; }
-  p { font-size: 10.5pt; margin-bottom: 4px; }
+  .entry-title { font-weight: bold; font-size: inherit; }
+  .entry-date { font-size: inherit; white-space: nowrap; flex-shrink: 0; }
+  .entry-url { font-size: 9.5pt; color: #1a56db; margin-top: 1px; }
+  .entry-sub2 { font-size: 9.5pt; color: #333; margin-top: 1px; }
+  ul { padding-left: 1.2em; margin-top: 3px; margin-bottom: 0; }
+  li { margin-bottom: 2px; font-size: inherit; }
+  p { font-size: inherit; margin-bottom: 3px; }
   @media print {
-    body { padding: 0.6in 0.65in; }
-    @page { size: letter; margin: 0; }
+    body { padding: 0; }
+    @page { size: letter; margin: 0.5in 0.55in; }
   }
 </style>
 </head>
 <body>
   <header>
-    <h1>${resume.header.name}</h1>
-    <p>${resume.header.contactLine}</p>
+    <h1>${esc(resume.header.name)}</h1>
+    <p>${esc(resume.header.contactLine)}</p>
   </header>
-  ${summHTML}
-  ${expHTML}
-  ${eduHTML}
-  ${skillsHTML}
+  ${orderedHTML}
 </body>
 </html>`
 }
