@@ -712,19 +712,27 @@ export function AdminResumeEditor() {
 
         </div>
 
-        {/* ── Right: Preview ── */}
+        {/* ── Right: Interactive Preview ── */}
         {showPreview && (
-          <div className="sticky top-4 self-start">
+          <div className="sticky top-4 self-start space-y-2">
+            {/* edit mode hint */}
+            <div className="flex items-center gap-2 px-1">
+              <span className="inline-flex items-center gap-1.5 text-[11px] text-blue-400/80 font-mono">
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+                Click any text in the preview to edit it inline
+              </span>
+            </div>
             <div className="rounded-xl border border-white/10 overflow-hidden bg-white shadow-2xl">
               <ResumePreview
                 resume={resume}
                 settings={settings}
                 projects={projects}
                 skills={skills}
+                onUpdate={setResume}
               />
             </div>
-            <p className="text-[11px] text-muted-foreground/60 mt-2 text-center">
-              Live preview · use Print / PDF to export
+            <p className="text-[11px] text-muted-foreground/60 text-center">
+              Edits sync with the left panel · use Print / PDF to export
             </p>
           </div>
         )}
