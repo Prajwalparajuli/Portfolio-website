@@ -203,7 +203,6 @@ function MouseGlow() {
     // Check for touch device
     if (window.matchMedia('(pointer: coarse)').matches) return
 
-    let timeout: NodeJS.Timeout
     const throttledUpdate = (e: MouseEvent) => {
       if (!isActiveRef.current) return
       cancelAnimationFrame(rafRef.current)
@@ -216,7 +215,6 @@ function MouseGlow() {
       isActiveRef.current = false
       window.removeEventListener('mousemove', throttledUpdate)
       cancelAnimationFrame(rafRef.current)
-      clearTimeout(timeout)
     }
   }, [updateMouse])
 
