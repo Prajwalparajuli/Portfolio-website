@@ -9,6 +9,7 @@ import { CustomCursor } from '@/components/public/CustomCursor'
 import { useEffect, useState } from 'react'
 import { PortfolioSettings } from '@/types'
 import { getSettings } from '@/lib/supabase'
+import { prefersReducedMotion } from '@/lib/animations'
 
 const contactEmailDefault =
   (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_CONTACT_EMAIL?.trim() ||
@@ -30,16 +31,48 @@ const DEFAULT_SETTINGS: PortfolioSettings = {
 
 export function PublicLayout() {
   const [settings, setSettings] = useState<PortfolioSettings>(DEFAULT_SETTINGS)
+  const [reducedMotion, setReducedMotion] = useState(false)
   const location = useLocation()
 
   useEffect(() => {
     getSettings()
       .then(setSettings)
       .catch(() => setSettings(DEFAULT_SETTINGS))
+    
+    // Check for reduced motion preference
+    setReducedMotion(prefersReducedMotion())
+    
+    // Listen for changes
+    const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)')
+    const handleChange = () => setReducedMotion(prefersReducedMotion())
+    mediaQuery.addEventListener('change', handleChange)
+    
+    return () => mediaQuery.removeEventListener('change', handleChange)
   }, [])
 
+  // Handle skip to content
+  const handleSkipToContent = (e: React.MouseEvent) => {
+    e.preventDefault()
+    const main = document.getElementById('main-content')
+    if (main) {
+      main.focus()
+      main.scrollIntoView({ behavior: 'smooth' })
+    }
+  }
+
   return (
-    <div className="min-h-screen relative cursor-custom">
+    <div className="min-h-screen relative cursor-none">
+      {/* Skip to content link - accessibility */}
+      <a
+        href="#main-content"
+        onClick={handleSkipToContent}
+        className="fixed top-4 left-4 z-[100] p-3 rounded-xl glass-strong text-sm font-medium
+                   translate-y-[-200%] focus:translate-y-0 transition-transform duration-200
+                   focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-background"
+      >
+        Skip to content
+      </a>
+
       <AnimatedBackground />
       <ScrollProgress />
       <CustomCursor />
@@ -48,19 +81,30 @@ export function PublicLayout() {
         <AnimatePresence mode="wait">
           <motion.div
             key={location.pathname}
-            initial={{ opacity: 0, y: 20 }}
+            initial={reducedMotion ? { opacity: 1 } : { opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+            exit={reducedMotion ? { opacity: 0 } : { opacity: 0, y: -10 }}
+            transition={{ 
+              duration: reducedMotion ? 0.1 : 0.4, 
+              ease: [0.22, 1, 0.36, 1] 
+            }}
             className="flex-1"
           >
-            <Outlet context={{ settings }} />
+            <main 
+              id="main-content" 
+              tabIndex={-1}
+              className="outline-none"
+            >
+              <Outlet context={{ settings }} />
+            </main>
           </motion.div>
         </AnimatePresence>
-        <div className="no-print fixed bottom-0 left-0 right-0 z-50 flex justify-center pb-4 pt-2 pointer-events-none md:relative md:sticky md:bottom-0">
+        
+        <div className="no-print fixed bottom-6 left-0 right-0 z-50 flex justify-center pointer-events-none">
           <FloatingDock settings={settings} />
         </div>
       </div>
+      
       <BackToTop />
       <KonamiEgg />
     </div>
