@@ -1,5 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react'
-import { motion } from 'framer-motion'
+import { useEffect, useRef, useCallback, useState } from 'react'
 
 export function CustomCursor() {
   const dotRef = useRef<HTMLDivElement>(null)
@@ -11,6 +10,10 @@ export function CustomCursor() {
   const clickingRef = useRef(false)
   const visibleRef = useRef(false)
   const rafRef = useRef(0)
+  
+  // Only render on client side after hydration
+  const [isClient, setIsClient] = useState(false)
+  const [isTouchDevice, setIsTouchDevice] = useState(false)
 
   const lerp = (a: number, b: number, t: number) => a + (b - a) * t
 
@@ -43,8 +46,14 @@ export function CustomCursor() {
   }, [])
 
   useEffect(() => {
+    // Mark as client-side
+    setIsClient(true)
+    
     // Check for touch device
-    if (typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches) return
+    const isTouch = typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches
+    setIsTouchDevice(isTouch)
+    
+    if (isTouch) return
 
     const move = (e: MouseEvent) => {
       pos.current = { x: e.clientX, y: e.clientY }
@@ -92,8 +101,8 @@ export function CustomCursor() {
     }
   }, [tick])
 
-  // Don't render on touch devices
-  if (typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches) return null
+  // Don't render until client-side hydrated, and not on touch devices
+  if (!isClient || isTouchDevice) return null
 
   return (
     <>
