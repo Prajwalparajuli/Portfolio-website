@@ -37,8 +37,8 @@ jobs:
       - name: Build
         working-directory: app
         env:
-          # GitHub Pages subpath (required)
-          VITE_BASE: /${{ github.event.repository.name }}/
+          # GitHub Pages base path - use / for custom domain, or /repo-name/ for project sites
+          VITE_BASE: /
           # From repo Settings → Secrets and variables → Actions (add these for Supabase, etc.)
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
