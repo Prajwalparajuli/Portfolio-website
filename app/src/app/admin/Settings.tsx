@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Loader2, Upload, FileText, Github, Linkedin, Twitter, Mail, Plus, Trash2, GraduationCap, Award, PenLine } from 'lucide-react'
 import { PortfolioSettings, EducationEntry } from '@/types'
-import { getSettings, updateSetting, uploadResume } from '@/lib/supabase'
+import { getSettings, updateSetting, uploadResume, syncCandidateProfileFromSettings } from '@/lib/supabase'
 import { cn } from '@/lib/utils'
 import { Link } from 'react-router-dom'
 import { getAdminPath } from '@/lib/adminConfig'
@@ -34,6 +34,7 @@ export function AdminSettings() {
         return updateSetting(key, typeof value === 'string' ? value || '' : '')
       })
       await Promise.all(updates)
+      await syncCandidateProfileFromSettings(settings)
       setSaveMessage('Settings saved successfully!')
       setTimeout(() => setSaveMessage(null), 3000)
     } catch (error) {
@@ -70,7 +71,13 @@ export function AdminSettings() {
     }
   }, [settings])
 
-  if (!settings) return null
+  if (!settings) {
+    return (
+      <div className="flex min-h-[40vh] items-center justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-8">

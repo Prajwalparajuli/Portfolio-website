@@ -1,10 +1,16 @@
 /**
- * Admin URL and access config (build-time env).
- * Use these so the admin area can live at a custom path and use secret-key access only.
+ * Admin URL config (build-time env).
+ * Only the admin path is configurable from the frontend build.
  */
 
 const basePath = (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_ADMIN_PATH?.trim() || 'admin'
-const secretKey = (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_ADMIN_SECRET_KEY?.trim() || ''
+const allowedEmailsValue =
+  (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_ADMIN_ALLOWED_EMAILS?.trim() || ''
+
+const allowedEmails = allowedEmailsValue
+  .split(',')
+  .map((email) => email.trim().toLowerCase())
+  .filter(Boolean)
 
 /** Base path segment (no leading slash), e.g. "admin" or "_edit" */
 export function getAdminBasePath(): string {
@@ -17,37 +23,16 @@ export function getAdminPath(subpath?: string): string {
   return subpath ? `${base}/${subpath.replace(/^\//, '')}` : base
 }
 
-/** When set, admin is protected by ?key= only; no login screen is shown. */
-export function getAdminSecretKey(): string {
-  return secretKey
+export function getAdminAllowedEmails(): string[] {
+  return [...allowedEmails]
 }
 
-export function isSecretKeyMode(): boolean {
-  return secretKey.length > 0
+export function isAdminAllowlistConfigured(): boolean {
+  return allowedEmails.length > 0
 }
 
-const SESSION_KEY = 'admin_secret_session'
-
-export function setAdminSecretSession(): void {
-  try {
-    sessionStorage.setItem(SESSION_KEY, '1')
-  } catch {
-    // ignore
-  }
-}
-
-export function hasAdminSecretSession(): boolean {
-  try {
-    return sessionStorage.getItem(SESSION_KEY) === '1'
-  } catch {
-    return false
-  }
-}
-
-export function clearAdminSecretSession(): void {
-  try {
-    sessionStorage.removeItem(SESSION_KEY)
-  } catch {
-    // ignore
-  }
+export function isAllowedAdminEmail(email?: string | null): boolean {
+  if (!email) return false
+  if (!isAdminAllowlistConfigured()) return true
+  return allowedEmails.includes(email.trim().toLowerCase())
 }

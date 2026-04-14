@@ -1,0 +1,105 @@
+- generic [ref=e3]:
+  - complementary [ref=e24]:
+    - generic [ref=e25]:
+      - heading "Admin Canvas" [level=1] [ref=e26]
+      - paragraph [ref=e27]: prajwalparajuli2017@gmail.com
+    - navigation [ref=e28]:
+      - link "Dashboard" [ref=e30] [cursor=pointer]:
+        - /url: /admin
+        - img [ref=e31]
+        - generic [ref=e36]: Dashboard
+      - link "Projects" [ref=e39] [cursor=pointer]:
+        - /url: /admin/projects
+        - img [ref=e40]
+        - generic [ref=e42]: Projects
+      - link "Skills" [ref=e44] [cursor=pointer]:
+        - /url: /admin/skills
+        - img [ref=e45]
+        - generic [ref=e49]: Skills
+      - link "Resume" [ref=e51] [cursor=pointer]:
+        - /url: /admin/resume
+        - img [ref=e52]
+        - generic [ref=e55]: Resume
+      - link "Settings" [ref=e57] [cursor=pointer]:
+        - /url: /admin/settings
+        - img [ref=e58]
+        - generic [ref=e61]: Settings
+      - link "Activity" [ref=e63] [cursor=pointer]:
+        - /url: /admin/activity
+        - img [ref=e64]
+        - generic [ref=e66]: Activity
+    - generic [ref=e67]:
+      - link "View Site" [ref=e68] [cursor=pointer]:
+        - /url: /
+        - img [ref=e69]
+        - text: View Site
+      - button "Sign Out" [ref=e73] [cursor=pointer]:
+        - img [ref=e74]
+        - text: Sign Out
+  - main [ref=e77]:
+    - generic [ref=e150]:
+      - generic [ref=e151]:
+        - generic [ref=e152]:
+          - heading "Projects" [level=1] [ref=e153]
+          - paragraph [ref=e154]: Manage and reorder your portfolio projects
+        - link "New Project" [ref=e155] [cursor=pointer]:
+          - /url: /admin/projects/new
+          - button "New Project" [ref=e156]:
+            - img [ref=e157]
+            - text: New Project
+      - generic [ref=e158]:
+        - generic [ref=e159]:
+          - paragraph [ref=e160]: Drag to reorder projects. Changes are saved automatically.
+          - generic [ref=e161] [cursor=pointer]:
+            - checkbox "Select all" [ref=e162]
+            - text: Select all
+        - generic [ref=e163]:
+          - generic [ref=e165]:
+            - checkbox [ref=e166]
+            - button [ref=e167]:
+              - img [ref=e168]
+            - img "Vision-Language Model Comparison" [ref=e175]
+            - generic [ref=e176]:
+              - heading "Vision-Language Model Comparison" [level=3] [ref=e178]
+              - generic [ref=e179]:
+                - generic [ref=e180]: Python
+                - generic [ref=e181]: PyTorch
+                - generic [ref=e182]: Computer Vision
+                - generic [ref=e183]: "+1"
+            - generic [ref=e184]:
+              - generic [ref=e185]:
+                - switch [checked] [ref=e186] [cursor=pointer]
+                - img [ref=e187]
+              - link [ref=e190] [cursor=pointer]:
+                - /url: /admin/projects/2e22d348-44e9-4498-816b-680af9feb70e/edit
+                - button [ref=e191]:
+                  - img [ref=e192]
+              - button "Duplicate" [ref=e195] [cursor=pointer]:
+                - img [ref=e196]
+              - button [ref=e199] [cursor=pointer]:
+                - img [ref=e200]
+          - generic [ref=e204]:
+            - checkbox [ref=e205]
+            - button [ref=e206]:
+              - img [ref=e207]
+            - img "ADHD Detection using ML" [ref=e214]
+            - generic [ref=e215]:
+              - heading "ADHD Detection using ML" [level=3] [ref=e217]
+              - generic [ref=e218]:
+                - generic [ref=e219]: Python
+                - generic [ref=e220]: Machine Learning
+                - generic [ref=e221]: Data Science
+                - generic [ref=e222]: "+1"
+            - generic [ref=e223]:
+              - generic [ref=e224]:
+                - switch [checked] [ref=e225] [cursor=pointer]
+                - img [ref=e226]
+              - link [ref=e229] [cursor=pointer]:
+                - /url: /admin/projects/f0aebdaa-1d7a-4f26-afdb-344c2e430b67/edit
+                - button [ref=e230]:
+                  - img [ref=e231]
+              - button "Duplicate" [ref=e234] [cursor=pointer]:
+                - img [ref=e235]
+              - button [ref=e238] [cursor=pointer]:
+                - img [ref=e239]
+        - status [ref=e242]

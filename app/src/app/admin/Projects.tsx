@@ -95,8 +95,10 @@ function SortableProjectItem({ project, selected, onToggleSelect, onTogglePublis
         )}
 
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <h3 className="font-semibold truncate">{project.title}</h3>
+          <div className="flex items-start gap-2 min-w-0">
+            <h3 className="min-w-0 text-lg font-semibold leading-tight tracking-tight truncate">
+              {project.title}
+            </h3>
             {!project.is_published && (
               <Badge variant="secondary" className="text-xs">
                 Draft

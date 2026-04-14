@@ -18,7 +18,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    environment: github-pages  # so build step can use your Environment secrets
+    environment: github-pages
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -37,17 +37,15 @@ jobs:
       - name: Build
         working-directory: app
         env:
-          # GitHub Pages base path - use / for custom domain, or /repo-name/ for project sites
+          # GitHub Pages base path: use / for a custom domain, or /repo-name/ for project sites.
           VITE_BASE: /
-          # From repo Settings → Secrets and variables → Actions (add these for Supabase, etc.)
+          # Public frontend variables only. Keep private service secrets in Supabase, not GitHub Pages.
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
           VITE_UNSPLASH_ACCESS_KEY: ${{ secrets.VITE_UNSPLASH_ACCESS_KEY }}
           VITE_ADMIN_PATH: ${{ vars.VITE_ADMIN_PATH }}
-          VITE_ADMIN_SECRET_KEY: ${{ secrets.VITE_ADMIN_SECRET_KEY }}
+          VITE_ADMIN_ALLOWED_EMAILS: ${{ vars.VITE_ADMIN_ALLOWED_EMAILS }}
           VITE_CONTACT_EMAIL: ${{ vars.VITE_CONTACT_EMAIL }}
-          # Optional: Gemini AI for resume bullet writing (free — get key at aistudio.google.com)
-          VITE_GEMINI_API_KEY: ${{ secrets.VITE_GEMINI_API_KEY }}
         run: npm run build
 
       - name: Fix SPA 404 (admin, deep links)

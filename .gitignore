@@ -12,6 +12,8 @@ app/dist/
 app/.env
 app/.env.local
 app/.env.*.local
+restore-supabase/*.backup
+restore-supabase/*.log
 
 # IDE and OS
 .idea/

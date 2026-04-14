@@ -23,15 +23,15 @@ export const PAPER_W = 816
 export const PAPER_H = 1056
 
 const STYLE = {
-  body: '10.5pt',
-  name: '17pt',
+  body: '10pt',
+  name: '14pt',
   head: '10pt',
-  small: '9.5pt',
-  padTop: 34,   // 0.35in
-  padBottom: 34, // 0.35in
-  padH: 53,     // 0.55in left/right
-  entryGap: 10,
-  sectionGap: 12,
+  small: '9pt',
+  padTop: 48,   // 0.5in
+  padBottom: 48, // 0.5in
+  padH: 48,     // 0.5in left/right
+  entryGap: 8,
+  sectionGap: 10,
 } as const
 
 // ─── InlineEdit ───────────────────────────────────────────────────────────────
@@ -112,10 +112,46 @@ function Section({ title, children }: { title: string; children: React.ReactNode
       }}>
         {title}
       </div>
-      <hr style={{ border: 'none', borderTop: '0.75px solid #000', marginBottom: 5 }} />
+      <hr style={{ border: 'none', borderTop: '0.75px solid #000', marginBottom: 4 }} />
       {children}
     </div>
   )
+}
+
+function formatCategoryLabel(category: string) {
+  if (!category.trim()) return 'Other'
+  return category
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ')
+}
+
+function getSkillDisplayBlocks(section: ResumeSkillsSection | undefined, skills: Skill[]) {
+  if (!section || skills.length === 0) return []
+
+  const displayStyle = section.displayStyle ?? (section.groupByCategory ? 'categorized' : 'comma')
+
+  if (displayStyle === 'categorized') {
+    const categories = [...new Set(skills.map((skill) => skill.category || 'Other'))]
+    return categories.map((category) => ({
+      key: category,
+      text: `${formatCategoryLabel(category)}: ${skills
+        .filter((skill) => (skill.category || 'Other') === category)
+        .map((skill) => skill.name)
+        .join(', ')}`,
+    }))
+  }
+
+  const separator =
+    displayStyle === 'pipe' ? ' | ' : displayStyle === 'bullet' ? ' • ' : ', '
+
+  return [
+    {
+      key: 'flat',
+      text: skills.map((skill) => skill.name).join(separator),
+    },
+  ]
 }
 
 // ─── main component ───────────────────────────────────────────────────────────
@@ -193,12 +229,13 @@ export function ResumePreview({
 
   const includedEdu = eduSection?.includedIndices
     .map(i => settings.education[i]).filter(Boolean) ?? []
+  const skillDisplayBlocks = getSkillDisplayBlocks(skillsSection, includedSkills)
 
   // ── font styles ─────────────────────────────────────────────────────────────
   const bodyStyle: React.CSSProperties = {
     fontFamily: "'Times New Roman', Georgia, serif",
     fontSize: STYLE.body,
-    lineHeight: 1.42,
+    lineHeight: 1.34,
     color: '#000',
     background: '#fff',
     width: PAPER_W,
@@ -259,7 +296,7 @@ export function ResumePreview({
           if (sec.type === 'summary' && sec.enabled) {
             if (!editable && !summSection?.text) return null
             return (
-              <Section key={si} title="SUMMARY">
+              <Section key={si} title={sec.sectionTitle || 'SUMMARY'}>
                 {editable ? (
                   <InlineEdit
                     value={summSection?.text ?? ''}
@@ -278,7 +315,7 @@ export function ResumePreview({
           /* ── Experience / Projects ────────────────────────────────────── */
           if (sec.type === 'experience' && sec.enabled && expSection && expSection.items.length > 0) {
             return (
-              <Section key={si} title={expSection.sectionTitle || 'PROJECT'}>
+              <Section key={si} title={sec.sectionTitle || 'PROJECTS'}>
                 {expSection.items.map((item, i) => {
                   const titleVal = item.kind === 'project'
                     ? (item.titleOverride || projects.find(p => p.id === (item as ProjectExperienceItem).projectId)?.title || '')
@@ -355,10 +392,10 @@ export function ResumePreview({
                               value={urlVal}
                               onChange={v => patchExpItem(i, { url: v })}
                               placeholder="https://demo-url (optional)"
-                              style={{ fontSize: 'inherit', color: '#1a56db' }}
+                              style={{ fontSize: 'inherit', color: '#111' }}
                             />
                           ) : (
-                            <span style={{ color: '#1a56db' }}>{urlVal}</span>
+                            <span style={{ color: '#111' }}>{urlVal}</span>
                           )}
                         </div>
                       )}
@@ -440,23 +477,14 @@ export function ResumePreview({
           }
 
           /* ── Skills ───────────────────────────────────────────────────── */
-          if (sec.type === 'skills' && sec.enabled && includedSkills.length > 0) {
+          if (sec.type === 'skills' && sec.enabled && skillDisplayBlocks.length > 0) {
             return (
-              <Section key={si} title="SKILLS">
-                {skillsSection!.groupByCategory
-                  ? (() => {
-                      const cats = [...new Set(includedSkills.map(s => s.category))]
-                      return cats.map(cat => {
-                        const catSkills = includedSkills.filter(s => s.category === cat)
-                        return (
-                          <p key={cat} style={{ margin: '0 0 3px' }}>
-                            {catSkills.map(s => s.name).join(', ')}
-                          </p>
-                        )
-                      })
-                    })()
-                  : <p style={{ margin: 0 }}>{includedSkills.map(s => s.name).join(', ')}</p>
-                }
+              <Section key={si} title={sec.sectionTitle || 'SKILLS'}>
+                {skillDisplayBlocks.map((block) => (
+                  <p key={block.key} style={{ margin: '0 0 3px' }}>
+                    {block.text}
+                  </p>
+                ))}
               </Section>
             )
           }
@@ -464,13 +492,13 @@ export function ResumePreview({
           /* ── Education ────────────────────────────────────────────────── */
           if (sec.type === 'education' && sec.enabled && includedEdu.length > 0) {
             return (
-              <Section key={si} title="EDUCATION">
+              <Section key={si} title={sec.sectionTitle || 'EDUCATION'}>
                 {includedEdu.map((entry, i) => (
                   <div key={i} style={{ marginBottom: 6 }}>
                     <div style={{ fontWeight: 'bold' }}>{entry.title}</div>
                     <div style={{ fontSize: STYLE.small, color: '#222' }}>
                       {entry.issuer}
-                      {entry.url ? <span> • <span style={{ color: '#1a56db' }}>{entry.url}</span></span> : null}
+                      {entry.url ? <span> • <span style={{ color: '#111' }}>{entry.url}</span></span> : null}
                       {' • '}{entry.date}
                     </div>
                   </div>

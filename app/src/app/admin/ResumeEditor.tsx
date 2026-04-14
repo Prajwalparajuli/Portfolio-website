@@ -1,4 +1,6 @@
+/* eslint-disable @typescript-eslint/no-unused-vars, no-useless-escape */
 import { useEffect, useState, useCallback, useRef } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -6,31 +8,77 @@ import { Textarea } from '@/components/ui/textarea'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Switch } from '@/components/ui/switch'
 import { Badge } from '@/components/ui/badge'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
-  Loader2, Plus, Trash2, GripVertical, Eye, Save,
+  Loader2, Plus, Trash2, GripVertical, Eye, Save, ArrowUp, ArrowDown,
   ChevronDown, ChevronUp, FileText, Printer, Info, Sparkles,
-  BookOpen, CheckCircle2, XCircle, AlertCircle, Key, ExternalLink
+  BookOpen, CheckCircle2, XCircle, AlertCircle
 } from 'lucide-react'
 import {
-  getSettings, getAllProjects, getSkills,
-  getResumeContent, updateResumeContent
+  getSettings, getAllProjects, getSkills, getJobPostings,
+  getResumeWorkspace, saveResumeVariant, createResumeVariant, deleteResumeVariant,
+  syncCandidateProfileFromSettings, isSupabaseConfigured
 } from '@/lib/supabase'
-import { PortfolioSettings } from '@/types'
+import { JobPosting, PortfolioSettings } from '@/types'
 import { Project } from '@/types'
 import { Skill } from '@/types'
 import {
-  ResumeContent, ResumeSection, ExperienceItem,
+  ResumeContent, ResumeSection, ResumeVariant, ExperienceItem,
   ProjectExperienceItem, CustomExperienceItem,
-  makeDefaultResumeContent
+  makeDefaultResumeContent,
+  normalizeResumeContent,
+  reorderResumeSections,
+  RESUME_LAYOUT_PRESETS,
+  ResumeLayoutPreset,
+  ResumeSectionType,
 } from '@/types/resume'
 import { ResumePreview, PAPER_W, PAPER_H } from '@/components/admin/ResumePreview'
 import { cn } from '@/lib/utils'
+import { getAdminPath } from '@/lib/adminConfig'
+import { saveResumePrintDraft } from '@/lib/resumePrint'
+import {
+  generateResumeBullets,
+  generateResumeSummary,
+  generateResumeSubtitle,
+  improveResumeBullet,
+  tailorResumeToJob,
+} from '@/lib/resumeAi'
 
 // ─── Gemini API ───────────────────────────────────────────────────────────────
 
-const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY as string | undefined
+const HAS_RESUME_AI = isSupabaseConfigured
+const GEMINI_KEY = HAS_RESUME_AI ? 'supabase-edge-function' : undefined
 // gemini-2.5-flash: free tier 15 req/min, 500 req/day — GA as of 2025
 const GEMINI_MODEL = 'gemini-2.5-flash'
+
+const SECTION_LABELS: Record<ResumeSectionType, string> = {
+  summary: 'Summary',
+  experience: 'Projects / Experience',
+  skills: 'Skills',
+  education: 'Education',
+}
+
+const LAYOUT_PRESET_OPTIONS: {
+  id: ResumeLayoutPreset
+  label: string
+  description: string
+}[] = [
+  {
+    id: 'projectFirst',
+    label: 'Project-first',
+    description: 'Lead with projects, then skills and education.',
+  },
+  {
+    id: 'educationFirst',
+    label: 'Education-first',
+    description: 'Best for internships and new-grad applications.',
+  },
+  {
+    id: 'skillsFirst',
+    label: 'Skills-first',
+    description: 'Highlight stack and keywords before project detail.',
+  },
+]
 
 /**
  * Base Gemini call with thinking DISABLED.
@@ -326,6 +374,7 @@ Output as JSON exactly in this format (no markdown code block):
  * container. This is the same technique Canva/Zety/Kickresume use so that
  * the preview is WYSIWYG — identical to the printed output.
  */
+/* eslint-enable @typescript-eslint/no-unused-vars, no-useless-escape */
 function ScaledPreviewWrapper({ children }: { children: React.ReactNode }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [scale, setScale] = useState(1)
@@ -367,6 +416,37 @@ function buildContactLineFromSettings(s: PortfolioSettings): string {
   return parts.join('  ')
 }
 
+function normalizeResumeForSettings(
+  content: ResumeContent | null | undefined,
+  settings: PortfolioSettings
+): ResumeContent {
+  return normalizeResumeContent(
+    content ?? makeDefaultResumeContent(
+      settings.site_title || '',
+      buildContactLineFromSettings(settings),
+      settings.education.length
+    ),
+    {
+      name: settings.site_title || '',
+      contactLine: buildContactLineFromSettings(settings),
+      educationCount: settings.education.length,
+    }
+  )
+}
+
+function buildVariantCopyName(variant: ResumeVariant): string {
+  const base = variant.name.trim() || 'Resume Variant'
+  if (/tailored/i.test(base)) return `${base} Copy`
+  if (variant.isPrimary) return 'Tailored Resume'
+  return `${base} Copy`
+}
+
+function buildJobVariantName(job: JobPosting): string {
+  const parts = [job.company.trim(), job.title.trim()].filter(Boolean)
+  const compact = parts.join(' · ')
+  return compact || 'Tailored Resume'
+}
+
 // ─── bullet quality ──────────────────────────────────────────────────────────
 
 // Strong past-tense action verbs that pass ATS and grab recruiters
@@ -402,7 +482,7 @@ function scoreBullet(b: string): { hasVerb: boolean; hasMetric: boolean; goodLen
  */
 function extractBulletsFromProject(project: Project): string[] {
   // ── Step 1: clean raw text ─────────────────────────────────────────────────
-  let raw = project.description
+  const raw = project.description
     .replace(/<[^>]+>/g, ' ')
     .replace(/&[a-z#0-9]+;/gi, ' ')
     .replace(/[\u{1F300}-\u{1FFFF}]/gu, '')
@@ -623,7 +703,7 @@ function BulletListEditor({ bullets, onChange, onImproveBullet }: BulletListEdit
                           try { await onImproveBullet(i, b) } finally { setImprovingIdx(null) }
                         }}
                         className="ml-auto inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded-full border border-purple-600/40 text-purple-400 hover:border-purple-400 hover:text-purple-300 transition-colors"
-                        title="Ask Gemini to rewrite this bullet stronger"
+                        title="Rewrite this bullet using the secure resume AI function"
                       >
                         {improvingIdx === i
                           ? <Loader2 className="h-2.5 w-2.5 animate-spin" />
@@ -681,7 +761,7 @@ function ExperienceItemEditor({ item, projects, onUpdate, onRemove, index, gemin
     setSuggesting(true)
     try {
       const bullets = geminiKey
-        ? await callGeminiForBullets(linkedProject, geminiKey)
+        ? await generateResumeBullets(linkedProject)
         : extractBulletsFromProject(linkedProject)
       onUpdate({ ...item, bullets })
     } catch (e) {
@@ -695,7 +775,7 @@ function ExperienceItemEditor({ item, projects, onUpdate, onRemove, index, gemin
     if (!linkedProject || !geminiKey) return
     setSubtitling(true)
     try {
-      const subtitle = await callGeminiForSubtitle(linkedProject, geminiKey)
+      const subtitle = await generateResumeSubtitle(linkedProject)
       onUpdate({ ...item, subtitle })
     } catch {
       // silently ignore — subtitle is optional
@@ -708,7 +788,7 @@ function ExperienceItemEditor({ item, projects, onUpdate, onRemove, index, gemin
     if (!geminiKey) return
     const tags = linkedProject?.tags ?? []
     const title = displayTitle
-    const improved = await callGeminiImproveBullet(bullet, title, tags, geminiKey)
+    const improved = await improveResumeBullet(bullet, title, tags)
     const bullets = [...item.bullets]
     bullets[idx] = improved
     onUpdate({ ...item, bullets })
@@ -878,7 +958,7 @@ function ExperienceItemEditor({ item, projects, onUpdate, onRemove, index, gemin
                     'gap-1 text-[11px] h-6 px-2 hover:text-white',
                     geminiKey ? 'text-purple-400 hover:text-purple-300' : 'text-muted-foreground'
                   )}
-                  title={geminiKey ? 'Generate bullets using Gemini AI (free)' : 'Extract bullets from project description (no AI key set)'}
+                  title={geminiKey ? 'Generate bullets using secure server-side AI' : 'Extract bullets from project description (no AI configured)'}
                 >
                   {suggesting
                     ? <Loader2 className="h-3 w-3 animate-spin" />
@@ -999,46 +1079,65 @@ function BestPracticesPanel() {
 // ─── main component ───────────────────────────────────────────────────────────
 
 export function AdminResumeEditor() {
+  const [searchParams, setSearchParams] = useSearchParams()
   const [settings, setSettings] = useState<PortfolioSettings | null>(null)
   const [projects, setProjects] = useState<Project[]>([])
   const [skills, setSkills] = useState<Skill[]>([])
+  const [jobPostings, setJobPostings] = useState<JobPosting[]>([])
   const [resume, setResume] = useState<ResumeContent | null>(null)
+  const [resumeVariants, setResumeVariants] = useState<ResumeVariant[]>([])
+  const [activeVariantId, setActiveVariantId] = useState<string | null>(null)
+  const [variantsSupported, setVariantsSupported] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saveMsg, setSaveMsg] = useState<string | null>(null)
   const [showPreview, setShowPreview] = useState(true)
-  const [activeSection, setActiveSection] = useState<ResumeSection['type'] | null>(null)
+  const [activeSection, setActiveSection] = useState<ResumeSection['type'] | null>('summary')
   const [summaryGenerating, setSummaryGenerating] = useState(false)
   const [jdText, setJdText] = useState('')
   const [tailoring, setTailoring] = useState(false)
   const [tailorMsg, setTailorMsg] = useState<string | null>(null)
   const [showJDPanel, setShowJDPanel] = useState(false)
+  const [tailorSummaryEnabled, setTailorSummaryEnabled] = useState(true)
+  const [tailorBulletsEnabled, setTailorBulletsEnabled] = useState(true)
+  const [utilityTab, setUtilityTab] = useState<'resume' | 'layout' | 'tailor'>('resume')
+  const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({})
+  const hydratedSelectedJobKeyRef = useRef<string | null>(null)
+
+  const loadWorkspace = useCallback(
+    async (nextSettings: PortfolioSettings, preferredVariantId?: string | null) => {
+      const workspace = await getResumeWorkspace(nextSettings)
+      const selectedVariant =
+        workspace.variants.find((variant) => variant.id === preferredVariantId) ??
+        workspace.variants.find((variant) => variant.isPrimary) ??
+        workspace.variants[0] ??
+        null
+
+      setVariantsSupported(workspace.variantsSupported)
+      setResumeVariants(workspace.variants)
+      setActiveVariantId(selectedVariant?.id ?? null)
+      setResume(selectedVariant ? normalizeResumeForSettings(selectedVariant.content, nextSettings) : null)
+    },
+    []
+  )
 
   // Load all data
   useEffect(() => {
-    Promise.all([getSettings(), getAllProjects(), getSkills(), getResumeContent()]).then(
-      ([s, p, sk, r]) => {
+    void Promise.all([getSettings(), getAllProjects(), getSkills(), getJobPostings()]).then(
+      async ([s, p, sk, jp]) => {
         setSettings(s)
         setProjects(p)
         setSkills(sk)
-        if (r) {
-          setResume(r)
-        } else {
-          // Build sensible defaults from existing settings
-          const def = makeDefaultResumeContent(
-            s.site_title || '',
-            buildContactLineFromSettings(s)
-          )
-          // Pre-include all education indices
-          def.sections = def.sections.map(sec =>
-            sec.type === 'education'
-              ? { ...sec, includedIndices: s.education.map((_, i) => i) }
-              : sec
-          )
-          setResume(def)
-        }
+        setJobPostings(jp ?? [])
+        await loadWorkspace(s)
       }
     )
-  }, [])
+  }, [loadWorkspace])
+
+  const activeVariant =
+    resumeVariants.find((variant) => variant.id === activeVariantId) ?? resumeVariants[0] ?? null
+  const selectedJobId = searchParams.get('job')?.trim() || ''
+  const selectedJob =
+    jobPostings.find((job) => job.id === selectedJobId) ?? null
 
   const updateSection = useCallback(<T extends ResumeSection>(type: T['type'], patch: Partial<T>) => {
     setResume(prev => {
@@ -1049,6 +1148,258 @@ export function AdminResumeEditor() {
       }
     })
   }, [])
+
+  const moveSection = useCallback((type: ResumeSectionType, direction: 'up' | 'down') => {
+    setResume((prev) => {
+      if (!prev) return prev
+      const index = prev.sections.findIndex((section) => section.type === type)
+      if (index === -1) return prev
+
+      const targetIndex = direction === 'up' ? index - 1 : index + 1
+      if (targetIndex < 0 || targetIndex >= prev.sections.length) return prev
+
+      const nextSections = [...prev.sections]
+      const [section] = nextSections.splice(index, 1)
+      nextSections.splice(targetIndex, 0, section)
+
+      return {
+        ...prev,
+        sections: nextSections,
+      }
+    })
+  }, [])
+
+  const applyLayoutPreset = useCallback((preset: ResumeLayoutPreset) => {
+    setResume((prev) => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        sections: reorderResumeSections(prev.sections, RESUME_LAYOUT_PRESETS[preset]),
+      }
+    })
+  }, [])
+
+  const updateActiveVariant = useCallback((patch: Partial<ResumeVariant>) => {
+    setResumeVariants((prev) =>
+      prev.map((variant) =>
+        variant.id === activeVariantId
+          ? {
+              ...variant,
+              ...patch,
+            }
+          : variant
+      )
+    )
+  }, [activeVariantId])
+
+  useEffect(() => {
+    const requestedTab = searchParams.get('tab')
+    if (requestedTab === 'resume' || requestedTab === 'layout' || requestedTab === 'tailor') {
+      setUtilityTab(requestedTab)
+      if (requestedTab === 'tailor') {
+        setShowJDPanel(true)
+      }
+    }
+  }, [searchParams])
+
+  useEffect(() => {
+    if (!selectedJobId) {
+      hydratedSelectedJobKeyRef.current = null
+    }
+  }, [selectedJobId])
+
+  useEffect(() => {
+    if (!selectedJob || !activeVariant) return
+
+    const hydrationKey = `${selectedJob.id}:${activeVariant.id}`
+    if (hydratedSelectedJobKeyRef.current === hydrationKey) return
+
+    setUtilityTab('tailor')
+    setShowJDPanel(true)
+    setJdText(selectedJob.description || '')
+
+    if (!activeVariant.isPrimary || !variantsSupported) {
+      updateActiveVariant({
+        sourceJobTitle: selectedJob.title,
+        sourceJobCompany: selectedJob.company,
+        sourceJobUrl: selectedJob.job_url,
+      })
+    }
+
+    hydratedSelectedJobKeyRef.current = hydrationKey
+  }, [activeVariant, selectedJob, updateActiveVariant, variantsSupported])
+
+  const handleSelectVariant = useCallback((variantId: string) => {
+    if (!settings) return
+    const nextVariant = resumeVariants.find((variant) => variant.id === variantId)
+    if (!nextVariant) return
+
+    setActiveVariantId(variantId)
+    setResume(normalizeResumeForSettings(nextVariant.content, settings))
+  }, [resumeVariants, settings])
+
+  const clearSelectedJobContext = useCallback(() => {
+    const nextParams = new URLSearchParams(searchParams)
+    nextParams.delete('job')
+    nextParams.delete('tab')
+    setSearchParams(nextParams, { replace: true })
+    hydratedSelectedJobKeyRef.current = null
+  }, [searchParams, setSearchParams])
+
+  const applySelectedJobToCurrentVariant = useCallback(() => {
+    if (!selectedJob) return
+    setUtilityTab('tailor')
+    setShowJDPanel(true)
+    setJdText(selectedJob.description || '')
+    updateActiveVariant({
+      sourceJobTitle: selectedJob.title,
+      sourceJobCompany: selectedJob.company,
+      sourceJobUrl: selectedJob.job_url,
+    })
+    setTailorMsg('Loaded the selected job into this variant. Review the variant details, then tailor with AI.')
+    setTimeout(() => setTailorMsg(null), 5000)
+  }, [selectedJob, updateActiveVariant])
+
+  const handleCreateVariantFromSelectedJob = useCallback(async () => {
+    if (!resume || !settings || !activeVariant || !selectedJob) return
+
+    setSaving(true)
+    setSaveMsg(null)
+    try {
+      await syncCandidateProfileFromSettings(settings)
+      const created = await createResumeVariant(
+        {
+          candidateProfileId: activeVariant.candidateProfileId,
+          name: buildJobVariantName(selectedJob),
+          variantType: 'tailored',
+          isPrimary: false,
+          sourceJobTitle: selectedJob.title,
+          sourceJobCompany: selectedJob.company,
+          sourceJobUrl: selectedJob.job_url,
+          notes: `Tailored for ${selectedJob.company || 'selected company'} — imported from Jobs.`,
+          content: resume,
+        },
+        { settings }
+      )
+
+      if (!created) {
+        setSaveMsg('Run migration 003 to unlock saved resume variants. Your master resume still works.')
+        return
+      }
+
+      await loadWorkspace(settings, created.id)
+      hydratedSelectedJobKeyRef.current = null
+      setUtilityTab('tailor')
+      setShowJDPanel(true)
+      setJdText(selectedJob.description || '')
+      setSaveMsg('Created a job-specific variant. Tailor it with AI next.')
+      setTimeout(() => setSaveMsg(null), 5000)
+    } catch (error) {
+      setSaveMsg(error instanceof Error ? error.message : 'Error creating the job-specific variant.')
+    } finally {
+      setSaving(false)
+    }
+  }, [activeVariant, loadWorkspace, resume, selectedJob, settings])
+
+  const jumpToEditorSection = useCallback((sectionKey: 'header' | ResumeSectionType) => {
+    if (sectionKey === 'header') {
+      setActiveSection(null)
+    } else {
+      setActiveSection(sectionKey)
+    }
+
+    const target = sectionRefs.current[sectionKey]
+    if (target) {
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  }, [])
+
+  const handleDuplicateVariant = useCallback(async () => {
+    if (!resume || !settings || !activeVariant) return
+
+    setSaving(true)
+    setSaveMsg(null)
+    try {
+      await syncCandidateProfileFromSettings(settings)
+      const duplicated = await createResumeVariant(
+        {
+          candidateProfileId: activeVariant.candidateProfileId,
+          name: buildVariantCopyName(activeVariant),
+          variantType: activeVariant.isPrimary ? 'tailored' : activeVariant.variantType,
+          isPrimary: false,
+          sourceJobTitle: activeVariant.sourceJobTitle,
+          sourceJobCompany: activeVariant.sourceJobCompany,
+          sourceJobUrl: activeVariant.sourceJobUrl,
+          notes: activeVariant.notes,
+          content: resume,
+        },
+        { settings }
+      )
+
+      if (!duplicated) {
+        setSaveMsg('Run migration 003 to unlock saved resume variants. Your master resume still works.')
+        return
+      }
+
+      await loadWorkspace(settings, duplicated.id)
+      setSaveMsg('Created a new resume variant.')
+      setTimeout(() => setSaveMsg(null), 3000)
+    } catch (error) {
+      setSaveMsg(error instanceof Error ? error.message : 'Error creating resume variant.')
+    } finally {
+      setSaving(false)
+    }
+  }, [activeVariant, loadWorkspace, resume, settings])
+
+  const handleSetAsPrimaryVariant = useCallback(async () => {
+    if (!resume || !settings || !activeVariant) return
+
+    setSaving(true)
+    setSaveMsg(null)
+    try {
+      const savedVariant = await saveResumeVariant(
+        {
+          ...activeVariant,
+          variantType: 'master',
+          isPrimary: true,
+          content: resume,
+        },
+        { settings }
+      )
+      await loadWorkspace(settings, savedVariant.id)
+      setSaveMsg('Set this resume as the primary master version.')
+      setTimeout(() => setSaveMsg(null), 3000)
+    } catch (error) {
+      setSaveMsg(error instanceof Error ? error.message : 'Error promoting resume variant.')
+    } finally {
+      setSaving(false)
+    }
+  }, [activeVariant, loadWorkspace, resume, settings])
+
+  const handleDeleteVariant = useCallback(async () => {
+    if (!settings || !activeVariant || activeVariant.isPrimary) return
+
+    const confirmed = window.confirm(`Delete "${activeVariant.name}"? This cannot be undone.`)
+    if (!confirmed) return
+
+    setSaving(true)
+    setSaveMsg(null)
+    try {
+      const deleted = await deleteResumeVariant(activeVariant.id)
+      if (!deleted) {
+        setSaveMsg('Resume variants are not available yet. Apply migration 003 first.')
+        return
+      }
+
+      await loadWorkspace(settings)
+      setSaveMsg('Resume variant deleted.')
+      setTimeout(() => setSaveMsg(null), 3000)
+    } catch (error) {
+      setSaveMsg(error instanceof Error ? error.message : 'Error deleting resume variant.')
+    } finally {
+      setSaving(false)
+    }
+  }, [activeVariant, loadWorkspace, settings])
 
   const expSection = resume?.sections.find(s => s.type === 'experience') as import('@/types/resume').ResumeExperienceSection | undefined
   const summSection = resume?.sections.find(s => s.type === 'summary') as import('@/types/resume').ResumeSummarySection | undefined
@@ -1101,15 +1452,38 @@ export function AdminResumeEditor() {
   }
 
   const handleSave = async () => {
-    if (!resume) return
+    if (!resume || !settings) return
     setSaving(true)
     setSaveMsg(null)
     try {
-      await updateResumeContent(resume)
-      setSaveMsg('Saved!')
+      const baseVariant = activeVariant ?? {
+        id: 'resume-variant-new-master',
+        candidateProfileId: null,
+        name: 'Master Resume',
+        variantType: 'master' as const,
+        isPrimary: true,
+        sourceJobTitle: '',
+        sourceJobCompany: '',
+        sourceJobUrl: '',
+        notes: '',
+        content: resume,
+        createdAt: null,
+        updatedAt: null,
+        isFallback: true,
+      }
+
+      const savedVariant = await saveResumeVariant(
+        {
+          ...baseVariant,
+          content: resume,
+        },
+        { settings }
+      )
+      await loadWorkspace(settings, savedVariant.id)
+      setSaveMsg(savedVariant.isFallback ? 'Saved to the legacy master resume.' : 'Saved!')
       setTimeout(() => setSaveMsg(null), 3000)
-    } catch {
-      setSaveMsg('Error saving. Please try again.')
+    } catch (error) {
+      setSaveMsg(error instanceof Error ? error.message : 'Error saving. Please try again.')
     } finally {
       setSaving(false)
     }
@@ -1117,21 +1491,20 @@ export function AdminResumeEditor() {
 
   const handlePrint = () => {
     if (!resume || !settings) return
-    const win = window.open('', '_blank')
-    if (!win) return
-    const html = generatePrintHTML(resume, settings, projects, skills)
-    win.document.write(html)
-    win.document.close()
-    win.focus()
-    setTimeout(() => win.print(), 500)
+    saveResumePrintDraft({ resume, settings, projects, skills })
+    const win = window.open(getAdminPath('resume/print'), '_blank', 'noopener,noreferrer')
+    if (!win) {
+      setSaveMsg('Print popup was blocked. Allow popups and try again.')
+      setTimeout(() => setSaveMsg(null), 5000)
+    }
   }
 
   const handleGenerateSummary = async () => {
-    if (!resume || !settings || !GEMINI_KEY) return
+    if (!resume || !settings || !HAS_RESUME_AI) return
     setSummaryGenerating(true)
     try {
       const expItems = expSection?.items ?? []
-      const text = await callGeminiForSummary(settings, skills, projects, expItems, GEMINI_KEY)
+      const text = await generateResumeSummary(settings, skills, projects, expItems)
       updateSection('summary', { text })
     } catch (e) {
       // show error in save msg area
@@ -1143,34 +1516,38 @@ export function AdminResumeEditor() {
   }
 
   const handleTailorToJD = async () => {
-    if (!resume || !GEMINI_KEY || !jdText.trim()) return
+    if (!resume || !HAS_RESUME_AI || !jdText.trim() || (!tailorSummaryEnabled && !tailorBulletsEnabled)) return
     setTailoring(true)
     setTailorMsg(null)
     try {
       const expItems = expSection?.items ?? []
       const currentSummary = summSection?.text ?? ''
-      const { summary, bullets } = await callGeminiTailorToJD(
-        jdText, currentSummary, expItems, projects, skills, GEMINI_KEY
-      )
-      // Apply summary
-      updateSection('summary', { text: summary })
-      // Apply bullets per entry
-      setResume(prev => {
-        if (!prev) return prev
-        return {
-          ...prev,
-          sections: prev.sections.map(s => {
-            if (s.type !== 'experience') return s
-            return {
-              ...s,
-              items: s.items.map((it, i) =>
-                bullets[i] ? { ...it, bullets: bullets[i] } : it
-              ),
-            }
-          }),
-        }
-      })
-      setTailorMsg('Resume tailored! Review each section and fill in any [X] placeholders.')
+      const { summary, bullets } = await tailorResumeToJob(jdText, currentSummary, expItems, projects, skills)
+      if (tailorSummaryEnabled) {
+        updateSection('summary', { text: summary })
+      }
+      if (tailorBulletsEnabled) {
+        setResume(prev => {
+          if (!prev) return prev
+          return {
+            ...prev,
+            sections: prev.sections.map(s => {
+              if (s.type !== 'experience') return s
+              return {
+                ...s,
+                items: s.items.map((it, i) =>
+                  bullets[i] ? { ...it, bullets: bullets[i] } : it
+                ),
+              }
+            }),
+          }
+        })
+      }
+      const tailoredParts = [
+        tailorSummaryEnabled ? 'summary' : null,
+        tailorBulletsEnabled ? 'bullets' : null,
+      ].filter(Boolean).join(' + ')
+      setTailorMsg(`Tailored ${tailoredParts}. Review everything and fill in any [X] placeholders.`)
       setTimeout(() => setTailorMsg(null), 8000)
     } catch (e) {
       setTailorMsg(e instanceof Error ? `Error: ${e.message}` : 'Tailoring failed — try again')
@@ -1199,6 +1576,8 @@ export function AdminResumeEditor() {
     expSection?.items.filter(i => i.kind === 'project').map(i => (i as ProjectExperienceItem).projectId) || []
   )
   const availableProjects = projects.filter(p => !usedProjectIds.has(p.id))
+  const getSectionIndex = (type: ResumeSectionType) =>
+    resume?.sections.findIndex((section) => section.type === type) ?? -1
 
   if (!resume || !settings) {
     return (
@@ -1211,10 +1590,21 @@ export function AdminResumeEditor() {
   return (
     <div className="space-y-6">
       {/* Header row */}
-      <div className="flex items-start justify-between gap-4 flex-wrap">
+      <div className="sticky top-0 z-20 rounded-xl border border-white/10 bg-background/85 px-4 py-3 backdrop-blur">
+        <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-3xl font-bold gradient-text">Resume Builder</h1>
-          <p className="text-muted-foreground mt-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h1 className="text-2xl font-bold gradient-text">Resume Builder</h1>
+            {activeVariant && (
+              <Badge variant="secondary" className="border border-white/10 bg-white/5">
+                {activeVariant.name}
+              </Badge>
+            )}
+            <Badge variant="secondary" className="border border-white/10 bg-white/5">
+              {wordCount}/{targetWords} words
+            </Badge>
+          </div>
+          <p className="text-xs text-muted-foreground mt-1">
             ATS-friendly resume editor · data synced from your portfolio
           </p>
         </div>
@@ -1239,6 +1629,456 @@ export function AdminResumeEditor() {
           )}
         </div>
       </div>
+      </div>
+
+      <Card className="glass">
+        <CardContent className="pt-4">
+          <Tabs value={utilityTab} onValueChange={(value) => setUtilityTab(value as 'resume' | 'layout' | 'tailor')} className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <TabsList className="h-auto bg-black/30 p-1">
+                <TabsTrigger value="resume">Resume</TabsTrigger>
+                <TabsTrigger value="layout">Layout</TabsTrigger>
+                <TabsTrigger value="tailor">Tailor</TabsTrigger>
+              </TabsList>
+              <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
+                <span>{wordCount} / {targetWords} words</span>
+                <div className="flex-1 min-w-[120px] max-w-[140px] h-1.5 rounded-full bg-white/10 overflow-hidden">
+                  <div
+                    className={cn(
+                      'h-full rounded-full transition-all',
+                      wordPct > 120 ? 'bg-red-500' : wordPct > 80 ? 'bg-green-500' : 'bg-yellow-500'
+                    )}
+                    style={{ width: `${wordPct}%` }}
+                  />
+                </div>
+                <span className={cn(
+                  wordPct > 120 ? 'text-red-400' : wordPct > 80 ? 'text-green-400' : 'text-yellow-400'
+                )}>{lengthLabel}</span>
+                <span className="flex items-center gap-1">
+                  Target
+                  <Input
+                    type="number"
+                    value={resume.targetWords}
+                    onChange={e => setResume(r => r ? { ...r, targetWords: Number(e.target.value) } : r)}
+                    className="w-16 h-8 text-xs px-2 bg-black/40 border-white/10"
+                    min={200} max={2000} step={50}
+                  />
+                </span>
+              </div>
+            </div>
+
+            {selectedJob && (
+              <div className="rounded-xl border border-blue-500/20 bg-blue-950/10 p-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-[11px] uppercase tracking-[0.2em] text-blue-200/70">Selected Job Context</p>
+                    <h3 className="mt-1 text-sm font-semibold text-white">
+                      {selectedJob.title}
+                    </h3>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {[selectedJob.company, selectedJob.location].filter(Boolean).join(' • ') || 'Saved job'}
+                    </p>
+                    <p className="mt-2 text-[11px] text-blue-100/70">
+                      The job description is loaded into the Tailor tab. Use a tailored copy if you do not want to touch the primary master.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedJob.job_url && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="glass border-white/10"
+                        onClick={() => window.open(selectedJob.job_url, '_blank', 'noopener,noreferrer')}
+                      >
+                        Open posting
+                      </Button>
+                    )}
+                    {activeVariant?.isPrimary && variantsSupported ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={handleCreateVariantFromSelectedJob}
+                        disabled={saving || !resume || !settings}
+                        className="gap-2"
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                        Create tailored copy
+                      </Button>
+                    ) : (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={applySelectedJobToCurrentVariant}
+                        className="glass border-white/10"
+                      >
+                        Use on current variant
+                      </Button>
+                    )}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={clearSelectedJobContext}
+                      className="text-muted-foreground hover:text-white"
+                    >
+                      Clear
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <TabsContent value="resume" className="mt-0">
+              <div className="grid gap-3 md:grid-cols-[minmax(240px,1fr)_auto]">
+                <div className="space-y-3">
+                  {!variantsSupported && (
+                    <div className="rounded-lg border border-yellow-800/40 bg-yellow-950/20 px-3 py-2 text-[11px] text-yellow-300/80">
+                      Saved variants are disabled until <code className="text-yellow-200">003_resume_foundation.sql</code> is applied.
+                      You can still edit and save the legacy master resume safely.
+                    </div>
+                  )}
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Current variant</Label>
+                      <select
+                        value={activeVariant?.id ?? ''}
+                        onChange={(e) => handleSelectVariant(e.target.value)}
+                        className="w-full rounded-md border border-white/10 bg-black/40 px-3 py-2 text-sm"
+                      >
+                        {resumeVariants.map((variant) => (
+                          <option key={variant.id} value={variant.id}>
+                            {variant.name}{variant.isPrimary ? ' · Primary' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Variant name</Label>
+                      <Input
+                        value={activeVariant?.name ?? ''}
+                        onChange={(e) => updateActiveVariant({ name: e.target.value })}
+                        placeholder="Master Resume"
+                        className="bg-black/40 border-white/10"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Target role</Label>
+                      <Input
+                        value={activeVariant?.sourceJobTitle ?? ''}
+                        onChange={(e) => updateActiveVariant({ sourceJobTitle: e.target.value })}
+                        placeholder="Machine Learning Engineer"
+                        className="bg-black/40 border-white/10"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Target company</Label>
+                      <Input
+                        value={activeVariant?.sourceJobCompany ?? ''}
+                        onChange={(e) => updateActiveVariant({ sourceJobCompany: e.target.value })}
+                        placeholder="Company name"
+                        className="bg-black/40 border-white/10"
+                      />
+                    </div>
+                    <div className="space-y-1 md:col-span-2">
+                      <Label className="text-xs text-muted-foreground">Job URL</Label>
+                      <Input
+                        value={activeVariant?.sourceJobUrl ?? ''}
+                        onChange={(e) => updateActiveVariant({ sourceJobUrl: e.target.value })}
+                        placeholder="https://company.com/jobs/..."
+                        className="bg-black/40 border-white/10"
+                      />
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground/60">
+                    Save before switching if you want to keep the current draft changes.
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-start gap-2 md:justify-end">
+                  {activeVariant?.isPrimary ? (
+                    <Badge variant="secondary" className="bg-green-500/10 text-green-300 border border-green-500/20">
+                      Primary master
+                    </Badge>
+                  ) : activeVariant ? (
+                    <Badge variant="secondary" className="bg-blue-500/10 text-blue-300 border border-blue-500/20">
+                      {activeVariant.variantType}
+                    </Badge>
+                  ) : null}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleDuplicateVariant}
+                    disabled={saving || !resume || !settings || !variantsSupported}
+                    className="glass border-white/10 gap-2"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    Duplicate
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleSetAsPrimaryVariant}
+                    disabled={saving || !resume || !settings || !variantsSupported || activeVariant?.isPrimary}
+                    className="glass border-white/10"
+                  >
+                    Set as master
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleDeleteVariant}
+                    disabled={saving || !variantsSupported || !activeVariant || activeVariant.isPrimary}
+                    className="text-destructive hover:text-destructive"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="layout" className="mt-0 space-y-3">
+              <div className="flex flex-wrap gap-2">
+                {LAYOUT_PRESET_OPTIONS.map((preset) => (
+                  <Button
+                    key={preset.id}
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="glass border-white/10"
+                    onClick={() => applyLayoutPreset(preset.id)}
+                    title={preset.description}
+                  >
+                    {preset.label}
+                  </Button>
+                ))}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {resume.sections.map((section, index) => (
+                  <Badge key={section.type} variant="secondary" className="gap-1.5">
+                    <span>{index + 1}.</span>
+                    <span>{SECTION_LABELS[section.type]}</span>
+                  </Badge>
+                ))}
+              </div>
+              <p className="text-[11px] text-muted-foreground/60">
+                Use the section cards below or the jump bar to fine-tune the order after picking a preset.
+              </p>
+            </TabsContent>
+
+            <TabsContent value="tailor" className="mt-0 space-y-3">
+              {selectedJob && (
+                <div className="rounded-lg border border-blue-500/20 bg-blue-950/10 px-3 py-2 text-xs text-blue-100/80">
+                  Tailoring against <span className="font-semibold text-white">{selectedJob.title}</span>
+                  {selectedJob.company ? <> at <span className="font-semibold text-white">{selectedJob.company}</span></> : null}.
+                  {' '}The description below came from your saved Jobs entry.
+                </div>
+              )}
+              <div className="flex flex-wrap items-center gap-4 rounded-lg border border-white/10 bg-black/30 px-3 py-2">
+                <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Switch checked={tailorSummaryEnabled} onCheckedChange={setTailorSummaryEnabled} />
+                  Tailor summary
+                </label>
+                <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Switch checked={tailorBulletsEnabled} onCheckedChange={setTailorBulletsEnabled} />
+                  Tailor bullets
+                </label>
+                {activeVariant?.isPrimary && variantsSupported && (
+                  <span className="text-[11px] text-blue-300/70">
+                    Duplicate the master first if you want a job-specific copy.
+                  </span>
+                )}
+              </div>
+              <Textarea
+                value={jdText}
+                onChange={e => setJdText(e.target.value)}
+                placeholder="Paste the full job description here..."
+                className="bg-black/40 border-white/10 min-h-[120px] text-sm resize-none"
+              />
+              <div className="flex items-center gap-3 flex-wrap">
+                <Button
+                  type="button"
+                  disabled={!GEMINI_KEY || tailoring || !jdText.trim() || !resume || (!tailorSummaryEnabled && !tailorBulletsEnabled)}
+                  onClick={handleTailorToJD}
+                  className={cn(
+                    'gap-2',
+                    GEMINI_KEY ? 'bg-purple-600 hover:bg-purple-500 text-white' : ''
+                  )}
+                  size="sm"
+                >
+                  {tailoring
+                    ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Tailoring resume...</>
+                    : <><Sparkles className="h-3.5 w-3.5" /> Tailor resume with AI</>
+                  }
+                </Button>
+                {tailorMsg && (
+                  <p className={cn(
+                    'text-[11px] flex-1',
+                    tailorMsg.startsWith('Error') ? 'text-red-400' : 'text-green-400'
+                  )}>{tailorMsg}</p>
+                )}
+                {!tailorSummaryEnabled && !tailorBulletsEnabled && (
+                  <p className="text-[11px] text-yellow-400">
+                    Select at least one target before tailoring.
+                  </p>
+                )}
+              </div>
+            </TabsContent>
+          </Tabs>
+        </CardContent>
+      </Card>
+
+      <div className="hidden">
+      <Card className="glass">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <BookOpen className="h-4 w-4" />
+            Resume Variants
+          </CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Keep a primary master resume, then clone tailored copies for specific roles or companies.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {!variantsSupported && (
+            <div className="rounded-lg border border-yellow-800/40 bg-yellow-950/20 px-3 py-2 text-[11px] text-yellow-300/80">
+              Saved variants are disabled until <code className="text-yellow-200">003_resume_foundation.sql</code> is applied.
+              You can still edit and save the legacy master resume safely.
+            </div>
+          )}
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="min-w-[240px] flex-1 space-y-1">
+              <Label className="text-xs text-muted-foreground">Current variant</Label>
+              <select
+                value={activeVariant?.id ?? ''}
+                onChange={(e) => handleSelectVariant(e.target.value)}
+                className="w-full rounded-md border border-white/10 bg-black/40 px-3 py-2 text-sm"
+              >
+                {resumeVariants.map((variant) => (
+                  <option key={variant.id} value={variant.id}>
+                    {variant.name}{variant.isPrimary ? ' · Primary' : ''}
+                  </option>
+                ))}
+              </select>
+              <p className="text-[11px] text-muted-foreground/60">
+                Save before switching if you want to keep the current draft changes.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              {activeVariant?.isPrimary ? (
+                <Badge variant="secondary" className="bg-green-500/10 text-green-300 border border-green-500/20">
+                  Primary master
+                </Badge>
+              ) : activeVariant ? (
+                <Badge variant="secondary" className="bg-blue-500/10 text-blue-300 border border-blue-500/20">
+                  {activeVariant.variantType}
+                </Badge>
+              ) : null}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleDuplicateVariant}
+                disabled={saving || !resume || !settings || !variantsSupported}
+                className="glass border-white/10 gap-2"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Duplicate
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleSetAsPrimaryVariant}
+                disabled={saving || !resume || !settings || !variantsSupported || activeVariant?.isPrimary}
+                className="glass border-white/10"
+              >
+                Set as master
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={handleDeleteVariant}
+                disabled={saving || !variantsSupported || !activeVariant || activeVariant.isPrimary}
+                className="text-destructive hover:text-destructive"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          </div>
+
+          {activeVariant && (
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">Variant name</Label>
+                <Input
+                  value={activeVariant.name}
+                  onChange={(e) => updateActiveVariant({ name: e.target.value })}
+                  placeholder="Master Resume"
+                  className="bg-black/40 border-white/10"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">Variant type</Label>
+                <select
+                  value={activeVariant.variantType}
+                  onChange={(e) =>
+                    updateActiveVariant({
+                      variantType: e.target.value as ResumeVariant['variantType'],
+                    })
+                  }
+                  className="w-full rounded-md border border-white/10 bg-black/40 px-3 py-2 text-sm"
+                >
+                  <option value="master">Master</option>
+                  <option value="tailored">Tailored</option>
+                  <option value="snapshot">Snapshot</option>
+                </select>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">Target role</Label>
+                <Input
+                  value={activeVariant.sourceJobTitle}
+                  onChange={(e) => updateActiveVariant({ sourceJobTitle: e.target.value })}
+                  placeholder="Machine Learning Engineer"
+                  className="bg-black/40 border-white/10"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">Target company</Label>
+                <Input
+                  value={activeVariant.sourceJobCompany}
+                  onChange={(e) => updateActiveVariant({ sourceJobCompany: e.target.value })}
+                  placeholder="Company name"
+                  className="bg-black/40 border-white/10"
+                />
+              </div>
+              <div className="space-y-1 md:col-span-2">
+                <Label className="text-xs text-muted-foreground">Job URL</Label>
+                <Input
+                  value={activeVariant.sourceJobUrl}
+                  onChange={(e) => updateActiveVariant({ sourceJobUrl: e.target.value })}
+                  placeholder="https://company.com/jobs/..."
+                  className="bg-black/40 border-white/10"
+                />
+              </div>
+              <div className="space-y-1 md:col-span-2">
+                <Label className="text-xs text-muted-foreground">Notes</Label>
+                <Textarea
+                  value={activeVariant.notes}
+                  onChange={(e) => updateActiveVariant({ notes: e.target.value })}
+                  placeholder="Keep track of keywords, recruiter notes, or why this variant exists."
+                  className="bg-black/40 border-white/10 min-h-[72px] text-sm resize-none"
+                />
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Length indicator */}
       <div className="flex items-center gap-3 text-xs text-muted-foreground">
@@ -1269,6 +2109,46 @@ export function AdminResumeEditor() {
       </div>
 
       {/* ── Best Practices panel ─────────────────────────────────────────── */}
+      <Card className="glass">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <GripVertical className="h-4 w-4" />
+            Layout & Section Order
+          </CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Choose a preset or move sections manually. Preview, print, and saved output all use this order.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex flex-wrap gap-2">
+            {LAYOUT_PRESET_OPTIONS.map((preset) => (
+              <Button
+                key={preset.id}
+                type="button"
+                variant="outline"
+                size="sm"
+                className="glass border-white/10"
+                onClick={() => applyLayoutPreset(preset.id)}
+                title={preset.description}
+              >
+                {preset.label}
+              </Button>
+            ))}
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Current order</Label>
+            <div className="flex flex-wrap gap-2">
+              {resume.sections.map((section, index) => (
+                <Badge key={section.type} variant="secondary" className="gap-1.5">
+                  <span>{index + 1}.</span>
+                  <span>{SECTION_LABELS[section.type]}</span>
+                </Badge>
+              ))}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       <BestPracticesPanel />
 
       {/* ── Tailor to Job Description ─────────────────────────────────────── */}
@@ -1281,16 +2161,29 @@ export function AdminResumeEditor() {
           <Sparkles className={cn('h-4 w-4', GEMINI_KEY ? 'text-purple-400' : 'text-muted-foreground')} />
           <span className={GEMINI_KEY ? 'text-white' : 'text-muted-foreground'}>
             Tailor resume to a job description
-            {!GEMINI_KEY && <span className="ml-2 text-[10px] opacity-50">(requires Gemini API key)</span>}
+            {!GEMINI_KEY && <span className="ml-2 text-[10px] opacity-50">(requires Supabase resume AI)</span>}
           </span>
           <span className="ml-auto text-xs opacity-50">{showJDPanel ? 'hide' : 'show'}</span>
         </button>
         {showJDPanel && (
           <div className="border-t border-white/10 px-4 pb-4 pt-3 space-y-3">
             <p className="text-[11px] text-muted-foreground/70">
-              Paste the job description below. Gemini will rewrite your summary and all project bullets to emphasize the exact skills and keywords the employer wants — without fabricating experience.
+              Paste the job description below. Secure server-side AI will rewrite your summary and project bullets to emphasize the exact skills and keywords the employer wants without fabricating experience.
               <span className="text-yellow-400/70"> Review everything and fill in any [X] placeholders after.</span>
+              {activeVariant?.isPrimary && variantsSupported && (
+                <span className="text-blue-300/70"> Duplicate the master first if you want to keep a separate job-specific copy.</span>
+              )}
             </p>
+            <div className="flex flex-wrap items-center gap-4 rounded-lg border border-white/10 bg-black/30 px-3 py-2">
+              <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Switch checked={tailorSummaryEnabled} onCheckedChange={setTailorSummaryEnabled} />
+                Tailor summary
+              </label>
+              <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Switch checked={tailorBulletsEnabled} onCheckedChange={setTailorBulletsEnabled} />
+                Tailor bullets
+              </label>
+            </div>
             <Textarea
               value={jdText}
               onChange={e => setJdText(e.target.value)}
@@ -1300,7 +2193,7 @@ export function AdminResumeEditor() {
             <div className="flex items-center gap-3 flex-wrap">
               <Button
                 type="button"
-                disabled={!GEMINI_KEY || tailoring || !jdText.trim() || !resume}
+                disabled={!GEMINI_KEY || tailoring || !jdText.trim() || !resume || (!tailorSummaryEnabled && !tailorBulletsEnabled)}
                 onClick={handleTailorToJD}
                 className={cn(
                   'gap-2',
@@ -1319,26 +2212,62 @@ export function AdminResumeEditor() {
                   tailorMsg.startsWith('Error') ? 'text-red-400' : 'text-green-400'
                 )}>{tailorMsg}</p>
               )}
+              {!tailorSummaryEnabled && !tailorBulletsEnabled && (
+                <p className="text-[11px] text-yellow-400">
+                  Select at least one target before tailoring.
+                </p>
+              )}
             </div>
             {!GEMINI_KEY && (
               <p className="text-[11px] text-muted-foreground/50">
-                Add <code>VITE_GEMINI_API_KEY</code> to your <code>.env</code> to enable this feature.{' '}
-                <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer"
-                  className="text-purple-400 underline hover:text-white">
-                  Get a free key →
-                </a>
+                AI actions stay disabled until Supabase is configured and the <code>resume-ai</code> Edge Function is deployed with a <code>GEMINI_API_KEY</code> secret.
               </p>
             )}
           </div>
         )}
       </div>
 
+      </div>
+
       {/* Two-panel layout */}
       <div className={cn('gap-6', showPreview ? 'grid grid-cols-1 xl:grid-cols-2' : 'flex flex-col max-w-2xl')}>
         {/* ── Left: Editor ── */}
-        <div className="space-y-4">
+        <div className="flex flex-col gap-4 min-w-0">
+
+          <div className="sticky top-24 z-10 rounded-xl border border-white/10 bg-background/90 p-2 backdrop-blur">
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => jumpToEditorSection('header')}
+                className={cn(
+                  'rounded-lg border px-3 py-1.5 text-xs transition-colors',
+                  activeSection === null
+                    ? 'border-white/30 bg-white/10 text-white'
+                    : 'border-white/10 text-muted-foreground hover:text-white'
+                )}
+              >
+                Header
+              </button>
+              {resume.sections.map((section) => (
+                <button
+                  key={section.type}
+                  type="button"
+                  onClick={() => jumpToEditorSection(section.type)}
+                  className={cn(
+                    'rounded-lg border px-3 py-1.5 text-xs transition-colors',
+                    activeSection === section.type
+                      ? 'border-white/30 bg-white/10 text-white'
+                      : 'border-white/10 text-muted-foreground hover:text-white'
+                  )}
+                >
+                  {SECTION_LABELS[section.type]}
+                </button>
+              ))}
+            </div>
+          </div>
 
           {/* Header section */}
+          <div ref={(node) => { sectionRefs.current.header = node }}>
           <Card className="glass">
             <CardHeader className="pb-3">
               <CardTitle className="text-base flex items-center gap-2">
@@ -1376,16 +2305,31 @@ export function AdminResumeEditor() {
               </Button>
             </CardContent>
           </Card>
+          </div>
 
           {/* Summary section */}
+          <div ref={(node) => { sectionRefs.current.summary = node }} style={{ order: getSectionIndex('summary') }}>
           <SectionCard
             label="Summary"
             enabled={summSection?.enabled ?? true}
             onToggle={v => updateSection('summary', { enabled: v })}
             active={activeSection === 'summary'}
             onToggleActive={() => setActiveSection(s => s === 'summary' ? null : 'summary')}
+            canMoveUp={getSectionIndex('summary') > 0}
+            canMoveDown={getSectionIndex('summary') < resume.sections.length - 1}
+            onMoveUp={() => moveSection('summary', 'up')}
+            onMoveDown={() => moveSection('summary', 'down')}
           >
             <div className="space-y-2">
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">Section heading on resume</Label>
+                <Input
+                  value={summSection?.sectionTitle ?? 'SUMMARY'}
+                  onChange={e => updateSection('summary', { sectionTitle: e.target.value })}
+                  placeholder="SUMMARY"
+                  className="bg-black/40 border-white/10 text-sm"
+                />
+              </div>
               {/* Best practice reminder */}
               <div className="rounded-md bg-blue-950/30 border border-blue-800/30 px-3 py-2 text-[11px] text-blue-300/80 space-y-0.5">
                 <div><span className="font-semibold text-blue-300">Best practice:</span> 3–4 sentences · 70–100 words · lead with degree/title · include 1 metric · end with value you bring</div>
@@ -1400,7 +2344,7 @@ export function AdminResumeEditor() {
                     <Button type="button" variant="ghost" size="sm" disabled={summaryGenerating}
                       className="gap-1 text-[11px] h-6 px-2 text-purple-400 hover:text-purple-300"
                       onClick={handleGenerateSummary}
-                      title="Gemini writes a personalized summary from your projects, skills, and education">
+                      title="Generate a personalized summary using the secure resume AI function">
                       {summaryGenerating ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
                       {summaryGenerating ? 'Writing…' : 'AI write summary'}
                     </Button>
@@ -1434,16 +2378,31 @@ export function AdminResumeEditor() {
               </div>
             </div>
           </SectionCard>
+          </div>
 
           {/* Education section */}
+          <div ref={(node) => { sectionRefs.current.education = node }} style={{ order: getSectionIndex('education') }}>
           <SectionCard
             label="Education"
             enabled={eduSection?.enabled ?? true}
             onToggle={v => updateSection('education', { enabled: v })}
             active={activeSection === 'education'}
             onToggleActive={() => setActiveSection(s => s === 'education' ? null : 'education')}
+            canMoveUp={getSectionIndex('education') > 0}
+            canMoveDown={getSectionIndex('education') < resume.sections.length - 1}
+            onMoveUp={() => moveSection('education', 'up')}
+            onMoveDown={() => moveSection('education', 'down')}
           >
             <div className="space-y-2">
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">Section heading on resume</Label>
+                <Input
+                  value={eduSection?.sectionTitle ?? 'EDUCATION'}
+                  onChange={e => updateSection('education', { sectionTitle: e.target.value })}
+                  placeholder="EDUCATION"
+                  className="bg-black/40 border-white/10 text-sm"
+                />
+              </div>
               {settings.education.length === 0 && (
                 <p className="text-xs text-muted-foreground/60">
                   No education entries yet. Add them in Settings → Profile → Education.
@@ -1472,23 +2431,29 @@ export function AdminResumeEditor() {
               })}
             </div>
           </SectionCard>
+          </div>
 
           {/* Experience / Projects section */}
+          <div ref={(node) => { sectionRefs.current.experience = node }} style={{ order: getSectionIndex('experience') }}>
           <SectionCard
             label="Projects / Experience"
             enabled={expSection?.enabled ?? true}
             onToggle={v => updateSection('experience', { enabled: v })}
             active={activeSection === 'experience'}
             onToggleActive={() => setActiveSection(s => s === 'experience' ? null : 'experience')}
+            canMoveUp={getSectionIndex('experience') > 0}
+            canMoveDown={getSectionIndex('experience') < resume.sections.length - 1}
+            onMoveUp={() => moveSection('experience', 'up')}
+            onMoveDown={() => moveSection('experience', 'down')}
           >
             <div className="space-y-3">
               {/* Section heading override */}
               <div className="space-y-1">
                 <Label className="text-xs text-muted-foreground">Section heading on resume</Label>
                 <Input
-                  value={expSection?.sectionTitle ?? 'PROJECT'}
+                  value={expSection?.sectionTitle ?? 'PROJECTS'}
                   onChange={e => updateSection('experience', { sectionTitle: e.target.value })}
-                  placeholder="PROJECT"
+                  placeholder="PROJECTS"
                   className="bg-black/40 border-white/10 text-sm"
                 />
               </div>
@@ -1537,22 +2502,49 @@ export function AdminResumeEditor() {
               </Button>
             </div>
           </SectionCard>
+          </div>
 
           {/* Skills section */}
+          <div ref={(node) => { sectionRefs.current.skills = node }} style={{ order: getSectionIndex('skills') }}>
           <SectionCard
             label="Skills"
             enabled={skillsSection?.enabled ?? true}
             onToggle={v => updateSection('skills', { enabled: v })}
             active={activeSection === 'skills'}
             onToggleActive={() => setActiveSection(s => s === 'skills' ? null : 'skills')}
+            canMoveUp={getSectionIndex('skills') > 0}
+            canMoveDown={getSectionIndex('skills') < resume.sections.length - 1}
+            onMoveUp={() => moveSection('skills', 'up')}
+            onMoveDown={() => moveSection('skills', 'down')}
           >
             <div className="space-y-3">
-              <div className="flex items-center gap-3">
-                <Switch
-                  checked={skillsSection?.groupByCategory ?? true}
-                  onCheckedChange={v => updateSection('skills', { groupByCategory: v })}
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">Section heading on resume</Label>
+                <Input
+                  value={skillsSection?.sectionTitle ?? 'SKILLS'}
+                  onChange={e => updateSection('skills', { sectionTitle: e.target.value })}
+                  placeholder="SKILLS"
+                  className="bg-black/40 border-white/10 text-sm"
                 />
-                <Label className="text-sm">Group by category</Label>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">Display style</Label>
+                <select
+                  value={skillsSection?.displayStyle ?? (skillsSection?.groupByCategory ? 'categorized' : 'comma')}
+                  onChange={(e) => {
+                    const displayStyle = e.target.value as 'categorized' | 'comma' | 'pipe' | 'bullet'
+                    updateSection('skills', {
+                      displayStyle,
+                      groupByCategory: displayStyle === 'categorized',
+                    })
+                  }}
+                  className="w-full rounded-md border border-white/10 bg-black/40 px-3 py-2 text-sm"
+                >
+                  <option value="categorized">Categorized list</option>
+                  <option value="comma">Comma-separated</option>
+                  <option value="pipe">Pipe-separated</option>
+                  <option value="bullet">Bullet-separated</option>
+                </select>
               </div>
               <div className="space-y-1">
                 <Label className="text-xs text-muted-foreground">Include skills</Label>
@@ -1598,21 +2590,22 @@ export function AdminResumeEditor() {
               </div>
             </div>
           </SectionCard>
+          </div>
 
         </div>
 
         {/* ── Right: Interactive Preview ── */}
         {showPreview && (
           <div className="sticky top-4 self-start space-y-2">
-            {/* Gemini key notice */}
+            {/* Resume AI notice */}
             {!GEMINI_KEY && (
               <div className="rounded-lg border border-purple-800/40 bg-purple-950/20 px-3 py-2 text-[11px] text-purple-300/80 flex items-start gap-2">
-                <Key className="h-3.5 w-3.5 shrink-0 mt-0.5 text-purple-400" />
+                <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5 text-purple-400" />
                 <span>
-                  Add <code className="text-purple-200">VITE_GEMINI_API_KEY</code> to your <code className="text-purple-200">.env</code> to unlock AI bullet writing (free — 1,500 calls/day).{' '}
+                  AI features are off until the <code className="text-purple-200">resume-ai</code> Supabase Edge Function is deployed and <code className="text-purple-200">GEMINI_API_KEY</code> is stored in Supabase secrets.
                   <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer"
                     className="underline text-purple-300 inline-flex items-center gap-0.5 hover:text-white">
-                    Get free key <ExternalLink className="h-2.5 w-2.5" />
+                    Finish Supabase setup
                   </a>
                 </span>
               </div>
@@ -1620,7 +2613,7 @@ export function AdminResumeEditor() {
             {GEMINI_KEY && (
               <div className="rounded-lg border border-green-800/40 bg-green-950/20 px-3 py-2 text-[11px] text-green-300/80 flex items-center gap-2">
                 <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-green-400" />
-                Gemini AI connected — click "AI write bullets" on any project entry.
+                Resume AI actions are routed through Supabase instead of a client-side key.
               </div>
             )}
 
@@ -1662,10 +2655,25 @@ interface SectionCardProps {
   onToggle: (v: boolean) => void
   active: boolean
   onToggleActive: () => void
+  canMoveUp: boolean
+  canMoveDown: boolean
+  onMoveUp: () => void
+  onMoveDown: () => void
   children: React.ReactNode
 }
 
-function SectionCard({ label, enabled, onToggle, active, onToggleActive, children }: SectionCardProps) {
+function SectionCard({
+  label,
+  enabled,
+  onToggle,
+  active,
+  onToggleActive,
+  canMoveUp,
+  canMoveDown,
+  onMoveUp,
+  onMoveDown,
+  children,
+}: SectionCardProps) {
   return (
     <Card className={cn('glass transition-all', enabled ? '' : 'opacity-60')}>
       <CardHeader className="pb-0">
@@ -1679,6 +2687,28 @@ function SectionCard({ label, enabled, onToggle, active, onToggleActive, childre
             <CardTitle className="text-base">{label}</CardTitle>
             {active ? <ChevronUp className="h-4 w-4 text-muted-foreground ml-auto" /> : <ChevronDown className="h-4 w-4 text-muted-foreground ml-auto" />}
           </button>
+          <div className="flex items-center gap-1">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              disabled={!canMoveUp}
+              onClick={onMoveUp}
+            >
+              <ArrowUp className="h-4 w-4" />
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              disabled={!canMoveDown}
+              onClick={onMoveDown}
+            >
+              <ArrowDown className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
       </CardHeader>
       {(active || label === 'Summary') && enabled && (
@@ -1775,7 +2805,7 @@ function generatePrintHTML(
         <div class="entry-header">
           <span class="entry-title">${esc(e.title)}</span>
         </div>
-        <div class="entry-sub2">${esc(e.issuer)}${e.url ? ` &bull; <span style="color:#1a56db">${esc(e.url)}</span>` : ''} &bull; ${esc(e.date)}</div>
+        <div class="entry-sub2">${esc(e.issuer)}${e.url ? ` &bull; <span style="color:#111">${esc(e.url)}</span>` : ''} &bull; ${esc(e.date)}</div>
       </div>`).join('')}
     </section>`
   })()
@@ -1806,22 +2836,22 @@ function generatePrintHTML(
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
     font-family: 'Times New Roman', Georgia, serif;
-    font-size: 10.5pt;
+    font-size: 10pt;
     color: #000;
     background: #fff;
     max-width: 8.5in;
     margin: 0 auto;
-    padding: 0.35in 0.55in;
-    line-height: 1.42;
+    padding: 0.5in 0.5in;
+    line-height: 1.34;
   }
-  header { text-align: center; margin-bottom: 12px; }
+  header { text-align: center; margin-bottom: 10px; }
   header h1 {
-    font-size: 17pt;
+    font-size: 14pt;
     font-weight: bold;
     text-transform: uppercase;
     letter-spacing: 0.04em;
   }
-  header p { font-size: 9.5pt; color: #222; margin-top: 3px; }
+  header p { font-size: 9pt; color: #222; margin-top: 3px; }
   section { margin-bottom: 10px; }
   h2 {
     font-size: 10pt;
@@ -1830,8 +2860,8 @@ function generatePrintHTML(
     letter-spacing: 0.07em;
     margin-bottom: 2px;
   }
-  hr { border: none; border-top: 1px solid #000; margin-bottom: 5px; }
-  .entry { margin-bottom: 9px; }
+  hr { border: none; border-top: 1px solid #000; margin-bottom: 4px; }
+  .entry { margin-bottom: 8px; }
   .entry-header {
     display: flex;
     justify-content: space-between;
@@ -1840,14 +2870,14 @@ function generatePrintHTML(
   }
   .entry-title { font-weight: bold; font-size: inherit; }
   .entry-date { font-size: inherit; white-space: nowrap; flex-shrink: 0; }
-  .entry-url { font-size: 9.5pt; color: #1a56db; margin-top: 1px; }
-  .entry-sub2 { font-size: 9.5pt; color: #333; margin-top: 1px; }
+  .entry-url { font-size: 9pt; color: #111; margin-top: 1px; }
+  .entry-sub2 { font-size: 9pt; color: #333; margin-top: 1px; }
   ul { padding-left: 1.2em; margin-top: 3px; margin-bottom: 0; }
   li { margin-bottom: 2px; font-size: inherit; }
   p { font-size: inherit; margin-bottom: 3px; }
   @media print {
     body { padding: 0; }
-    @page { size: letter; margin: 0.35in 0.55in; }
+    @page { size: letter; margin: 0.5in; }
   }
 </style>
 </head>

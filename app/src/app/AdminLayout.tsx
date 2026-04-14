@@ -1,89 +1,34 @@
-import { Outlet, useNavigate, useSearchParams } from 'react-router-dom'
+import { Suspense, useEffect } from 'react'
+import { Outlet, useLocation } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { useAuth } from '@/components/auth/AuthProvider'
 import { LoginForm } from '@/components/auth/LoginForm'
 import { AdminSidebar } from '@/components/admin/AdminSidebar'
-import { Loader2 } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Loader2, ShieldAlert } from 'lucide-react'
 import { isSupabaseConfigured } from '@/lib/supabase'
-import {
-  isSecretKeyMode,
-  getAdminSecretKey,
-  setAdminSecretSession,
-  hasAdminSecretSession,
-} from '@/lib/adminConfig'
-import { useEffect, useState } from 'react'
+import { isAdminAllowlistConfigured } from '@/lib/adminConfig'
+import { preloadAdminRoutes } from './admin/routes'
 
 const devBypassAdmin = (import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV && !isSupabaseConfigured
 
-export function AdminLayout() {
-  const { user, isLoading } = useAuth()
-  const navigate = useNavigate()
-  const [searchParams, setSearchParams] = useSearchParams()
-  const [secretKeyAllowed, setSecretKeyAllowed] = useState<boolean | null>(
-    () => (isSecretKeyMode() ? null : true)
+function AdminRouteFallback() {
+  return (
+    <div className="flex min-h-[40vh] items-center justify-center">
+      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+    </div>
   )
+}
 
-  const keyParam = searchParams.get('key')
-  const expectedKey = getAdminSecretKey()
+export function AdminLayout() {
+  const { user, isAdmin, isLoading, signOut } = useAuth()
+  const location = useLocation()
 
   useEffect(() => {
-    if (!isSecretKeyMode()) {
-      setSecretKeyAllowed(true)
-      return
+    if (user || devBypassAdmin) {
+      void preloadAdminRoutes()
     }
-    if (keyParam === expectedKey) {
-      setAdminSecretSession()
-      setSecretKeyAllowed(true)
-      searchParams.delete('key')
-      setSearchParams(searchParams, { replace: true })
-      return
-    }
-    if (hasAdminSecretSession()) {
-      setSecretKeyAllowed(true)
-      return
-    }
-    setSecretKeyAllowed(false)
-    navigate('/', { replace: true })
-  }, [keyParam, expectedKey, navigate, searchParams, setSearchParams])
-
-  // Secret-key mode: no login screen; require ?key=SECRET or existing session
-  if (isSecretKeyMode()) {
-    if (secretKeyAllowed === false) {
-      return (
-        <div className="min-h-screen flex items-center justify-center bg-background">
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.3 }}
-          >
-            <Loader2 className="h-8 w-8 animate-spin text-accent" />
-          </motion.div>
-        </div>
-      )
-    }
-    if (secretKeyAllowed === true) {
-      return (
-        <div className="min-h-screen flex bg-background">
-          <AdminSidebar />
-          <main className="flex-1 p-6 md:p-8 overflow-auto">
-            <motion.div 
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
-              className="max-w-6xl mx-auto"
-            >
-              <Outlet />
-            </motion.div>
-          </main>
-        </div>
-      )
-    }
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <Loader2 className="h-8 w-8 animate-spin text-accent" />
-      </div>
-    )
-  }
+  }, [user])
 
   if (isLoading && !devBypassAdmin) {
     return (
@@ -101,18 +46,68 @@ export function AdminLayout() {
     )
   }
 
+  if (!isAdmin && !devBypassAdmin) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4 bg-background mesh-gradient">
+        <div className="glass-strong w-full max-w-md rounded-2xl border border-border/50 p-6 space-y-4">
+          <div className="flex items-center gap-3">
+            <div className="rounded-xl bg-destructive/10 p-3">
+              <ShieldAlert className="h-5 w-5 text-destructive" />
+            </div>
+            <div>
+              <h1 className="text-xl font-semibold">Admin Access Required</h1>
+              <p className="text-sm text-muted-foreground">
+                This account is authenticated but not authorized for the admin area.
+              </p>
+            </div>
+          </div>
+          <div className="rounded-xl bg-black/20 border border-white/10 p-3 text-sm text-muted-foreground space-y-1">
+            <p>Signed in as: {user?.email ?? 'unknown user'}</p>
+            <p>
+              {isAdminAllowlistConfigured()
+                ? 'Add this email to the admin allowlist and Supabase admin_users table if it should have access.'
+                : 'Set VITE_ADMIN_ALLOWED_EMAILS and the Supabase admin_users table to enforce admin access properly.'}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              className="flex-1"
+              onClick={() => {
+                window.location.href = '/'
+              }}
+            >
+              Back to site
+            </Button>
+            <Button
+              className="flex-1"
+              onClick={() => {
+                void signOut()
+              }}
+            >
+              Sign out
+            </Button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen flex bg-background">
       <AdminSidebar />
       <main className="flex-1 p-6 md:p-8 overflow-auto">
-        <motion.div 
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
-          className="max-w-6xl mx-auto"
-        >
-          <Outlet />
-        </motion.div>
+        <Suspense fallback={<AdminRouteFallback />}>
+          <motion.div
+            key={location.pathname}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
+            className="max-w-6xl mx-auto"
+          >
+            <Outlet />
+          </motion.div>
+        </Suspense>
       </main>
     </div>
   )

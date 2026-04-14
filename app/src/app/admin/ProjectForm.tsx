@@ -47,7 +47,9 @@ export function AdminProjectForm() {
   const [newTag, setNewTag] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
+  const [isSuggestingCover, setIsSuggestingCover] = useState(false)
   const [previewImage, setPreviewImage] = useState<string | null>(null)
+  const [pendingCoverFile, setPendingCoverFile] = useState<File | null>(null)
   const [availableTags, setAvailableTags] = useState<string[]>([])
   const [githubImportUrl, setGithubImportUrl] = useState('')
   const [isImporting, setIsImporting] = useState(false)
@@ -102,6 +104,15 @@ export function AdminProjectForm() {
     }
   }, [id, editor])
 
+  const getSuggestedCover = useCallback(async (tags: string[], slug: string, title: string) => {
+    const searchTerm = [...tags.slice(0, 2), title].filter(Boolean).join(' ')
+    if (isUnsplashConfigured() && searchTerm.trim()) {
+      const [first] = await searchUnsplash(searchTerm, 1)
+      if (first?.url) return first.url
+    }
+    return getSuggestedCoverImage(tags, slug)
+  }, [])
+
   const handleImageUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -118,6 +129,10 @@ export function AdminProjectForm() {
       if (id) {
         const url = await uploadProjectImage(file, id)
         setFormData(prev => ({ ...prev, cover_image: url }))
+        setPendingCoverFile(null)
+      } else {
+        setPendingCoverFile(file)
+        setFormData(prev => ({ ...prev, cover_image: null }))
       }
     } catch (error) {
       console.error('Error uploading image:', error)
@@ -150,11 +165,17 @@ export function AdminProjectForm() {
         slug: data.slug,
         tags: data.tags.length > 0 ? data.tags : prev.tags,
         github_url: data.github_url,
+        demo_url: data.demo_url ?? prev.demo_url,
       }))
       editor?.commands.setContent(data.description)
-      const suggestedCover = getSuggestedCoverImage(data.tags.length > 0 ? data.tags : [], data.slug)
+      const suggestedCover = await getSuggestedCover(
+        data.tags.length > 0 ? data.tags : formData.tags,
+        data.slug,
+        data.title
+      )
       setFormData(prev => ({ ...prev, cover_image: suggestedCover }))
       setPreviewImage(suggestedCover)
+      setPendingCoverFile(null)
       setGithubImportUrl('')
     } catch (err) {
       setImportError(err instanceof Error ? err.message : 'Failed to fetch repo')
@@ -163,10 +184,16 @@ export function AdminProjectForm() {
     }
   }
 
-  const handleSuggestCover = () => {
-    const url = getSuggestedCoverImage(formData.tags, formData.slug)
-    setFormData(prev => ({ ...prev, cover_image: url }))
-    setPreviewImage(url)
+  const handleSuggestCover = async () => {
+    setIsSuggestingCover(true)
+    try {
+      const url = await getSuggestedCover(formData.tags, formData.slug, formData.title)
+      setFormData(prev => ({ ...prev, cover_image: url }))
+      setPreviewImage(url)
+      setPendingCoverFile(null)
+    } finally {
+      setIsSuggestingCover(false)
+    }
   }
 
   const handleSearchImages = () => setSearchOpen(true)
@@ -192,6 +219,7 @@ export function AdminProjectForm() {
   const selectSearchImage = (url: string) => {
     setFormData(prev => ({ ...prev, cover_image: url }))
     setPreviewImage(url)
+    setPendingCoverFile(null)
     setSearchOpen(false)
     setSearchQuery('')
     setSearchResults([])
@@ -203,11 +231,22 @@ export function AdminProjectForm() {
     setIsSubmitting(true)
 
     try {
+      let savedProjectId = id ?? null
+
       if (isEditing && id) {
         await updateProject(id, formData)
       } else {
-        await createProject(formData)
+        const created = await createProject(formData)
+        savedProjectId = created?.id ?? null
       }
+
+      if (!isEditing && pendingCoverFile && savedProjectId) {
+        const uploadedCoverUrl = await uploadProjectImage(pendingCoverFile, savedProjectId)
+        if (uploadedCoverUrl) {
+          await updateProject(savedProjectId, { cover_image: uploadedCoverUrl })
+        }
+      }
+
       const skills = await getSkills()
       const skillNames = new Set(skills.map(s => s.name))
       const defaultColor = '#3b82f6'
@@ -241,7 +280,7 @@ export function AdminProjectForm() {
             <CardContent className="p-6 space-y-3">
               <Label className="text-sm font-medium">Import from GitHub</Label>
               <p className="text-xs text-muted-foreground">
-                Paste a public repo URL to pre-fill title, description, slug, and tags.
+                Paste a public repo URL to pre-fill title, description, slug, tags, and homepage.
               </p>
               <div className="flex gap-2">
                 <Input
@@ -317,6 +356,7 @@ export function AdminProjectForm() {
                       type="button"
                       onClick={() => {
                         setPreviewImage(null)
+                        setPendingCoverFile(null)
                         setFormData(prev => ({ ...prev, cover_image: null }))
                       }}
                       className="absolute -top-2 -right-2 p-1 bg-destructive rounded-full"
@@ -325,8 +365,8 @@ export function AdminProjectForm() {
                     </button>
                   </div>
                 )}
-                <Button type="button" variant="secondary" size="sm" onClick={handleSuggestCover}>
-                  Suggest cover
+                <Button type="button" variant="secondary" size="sm" onClick={handleSuggestCover} disabled={isSuggestingCover}>
+                  {isSuggestingCover ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Suggest cover'}
                 </Button>
                 <Button type="button" variant="secondary" size="sm" onClick={handleSearchImages} className="gap-1.5">
                   <Search className="h-4 w-4" />
@@ -411,6 +451,9 @@ export function AdminProjectForm() {
 
             <div className="space-y-2">
               <Label>Description</Label>
+              <p className="text-xs text-muted-foreground">
+                GitHub import now keeps the useful overview and feature/result sections instead of dumping the whole README.
+              </p>
               <div className="glass rounded-lg overflow-hidden">
                 <div className="flex items-center gap-1 p-2 border-b border-white/10">
                   <Button

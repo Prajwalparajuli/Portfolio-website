@@ -1,9 +1,11 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
 import { User } from '@supabase/supabase-js'
 import { supabase, getCurrentUser } from '@/lib/supabase'
+import { isAllowedAdminEmail } from '@/lib/adminConfig'
 
 interface AuthContextType {
   user: User | null
+  isAdmin: boolean
   isLoading: boolean
   signIn: (email: string, password: string) => Promise<void>
   signOut: () => Promise<void>
@@ -14,6 +16,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const isAdmin = isAllowedAdminEmail(user?.email)
 
   useEffect(() => {
     getCurrentUser()
@@ -56,7 +59,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, signIn, signOut }}>
+    <AuthContext.Provider value={{ user, isAdmin, isLoading, signIn, signOut }}>
       {children}
     </AuthContext.Provider>
   )

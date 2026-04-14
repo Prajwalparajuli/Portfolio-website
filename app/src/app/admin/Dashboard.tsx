@@ -1,28 +1,42 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { BriefcaseBusiness, FolderKanban, Send, Settings, Tags } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { FolderKanban, Tags, Settings, Eye } from 'lucide-react'
-import { getAllProjects, getSkills } from '@/lib/supabase'
+import {
+  getAllProjects,
+  getApplications,
+  getJobPostings,
+  getSkills,
+} from '@/lib/supabase'
 import { getAdminPath } from '@/lib/adminConfig'
-import { Project, Skill } from '@/types'
+import { ApplicationRecord, JobPosting, Project, Skill } from '@/types'
 
 export function AdminDashboard() {
   const [projects, setProjects] = useState<Project[]>([])
   const [skills, setSkills] = useState<Skill[]>([])
+  const [jobs, setJobs] = useState<JobPosting[]>([])
+  const [applications, setApplications] = useState<ApplicationRecord[]>([])
 
   useEffect(() => {
-    Promise.all([getAllProjects(), getSkills()]).then(([projectsData, skillsData]) => {
+    Promise.all([
+      getAllProjects(),
+      getSkills(),
+      getJobPostings(),
+      getApplications(),
+    ]).then(([projectsData, skillsData, jobsData, applicationsData]) => {
       setProjects(projectsData)
       setSkills(skillsData)
+      setJobs(jobsData ?? [])
+      setApplications(applicationsData ?? [])
     })
   }, [])
 
-  const publishedProjects = projects.filter(p => p.is_published)
-  const draftProjects = projects.filter(p => !p.is_published)
+  const publishedProjects = projects.filter((project) => project.is_published)
+  const draftProjects = projects.filter((project) => !project.is_published)
 
   const stats = [
     {
-      title: 'Total Projects',
+      title: 'Projects',
       value: projects.length,
       icon: FolderKanban,
       href: getAdminPath('projects'),
@@ -33,21 +47,28 @@ export function AdminDashboard() {
       value: skills.length,
       icon: Tags,
       href: getAdminPath('skills'),
-      description: 'Available for tagging',
+      description: 'Available for tagging and matching',
     },
     {
-      title: 'Site Views',
-      value: '—',
-      icon: Eye,
-      href: '#',
-      description: 'Analytics coming soon',
+      title: 'Jobs',
+      value: jobs.length,
+      icon: BriefcaseBusiness,
+      href: getAdminPath('jobs'),
+      description: 'Manual capture + fit scoring',
+    },
+    {
+      title: 'Applications',
+      value: applications.length,
+      icon: Send,
+      href: getAdminPath('applications'),
+      description: 'Pipeline you are actively tracking',
     },
     {
       title: 'Settings',
       value: '8',
       icon: Settings,
       href: getAdminPath('settings'),
-      description: 'Configure your portfolio',
+      description: 'Profile, links, resume, and site details',
     },
   ]
 
@@ -56,16 +77,16 @@ export function AdminDashboard() {
       <div>
         <h1 className="text-3xl font-bold gradient-text">Dashboard</h1>
         <p className="text-muted-foreground mt-1">
-          Welcome back! Here&apos;s what&apos;s happening with your portfolio.
+          Portfolio state, job pipeline, and resume workbench at a glance.
         </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
         {stats.map((stat) => {
           const Icon = stat.icon
           return (
             <Link key={stat.title} to={stat.href}>
-              <Card className="glass hover:bg-white/5 transition-colors cursor-pointer h-full">
+              <Card className="glass h-full cursor-pointer transition-colors hover:bg-white/5">
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
                   <CardTitle className="text-sm font-medium text-muted-foreground">
                     {stat.title}
@@ -74,7 +95,7 @@ export function AdminDashboard() {
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold">{stat.value}</div>
-                  <p className="text-xs text-muted-foreground mt-1">
+                  <p className="mt-1 text-xs text-muted-foreground">
                     {stat.description}
                   </p>
                 </CardContent>
@@ -84,7 +105,7 @@ export function AdminDashboard() {
         })}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card className="glass">
           <CardHeader>
             <CardTitle className="text-lg">Recent Projects</CardTitle>
@@ -93,10 +114,10 @@ export function AdminDashboard() {
             {projects.slice(0, 5).map((project) => (
               <div
                 key={project.id}
-                className="flex items-center justify-between py-3 border-b border-white/5 last:border-0"
+                className="flex items-center justify-between border-b border-white/5 py-3 last:border-0"
               >
-                <div>
-                  <p className="font-medium">{project.title}</p>
+                <div className="min-w-0">
+                  <p className="truncate font-medium">{project.title}</p>
                   <p className="text-sm text-muted-foreground">
                     {project.is_published ? 'Published' : 'Draft'}
                   </p>
@@ -110,8 +131,8 @@ export function AdminDashboard() {
               </div>
             ))}
             {projects.length === 0 && (
-              <p className="text-muted-foreground text-center py-4">
-                No projects yet. Create your first project!
+              <p className="py-4 text-center text-muted-foreground">
+                No projects yet. Create your first project.
               </p>
             )}
           </CardContent>
@@ -124,20 +145,29 @@ export function AdminDashboard() {
           <CardContent className="space-y-2">
             <Link
               to={getAdminPath('projects/new')}
-              className="block p-4 rounded-lg bg-white/5 hover:bg-white/10 transition-colors"
+              className="block rounded-lg bg-white/5 p-4 transition-colors hover:bg-white/10"
             >
               <p className="font-medium">Create New Project</p>
               <p className="text-sm text-muted-foreground">
-                Add a new project to your portfolio
+                Add a fresh project and pull a smarter description from GitHub.
               </p>
             </Link>
             <Link
-              to={getAdminPath('settings')}
-              className="block p-4 rounded-lg bg-white/5 hover:bg-white/10 transition-colors"
+              to={getAdminPath('resume')}
+              className="block rounded-lg bg-white/5 p-4 transition-colors hover:bg-white/10"
             >
-              <p className="font-medium">Update Settings</p>
+              <p className="font-medium">Refine Resume</p>
               <p className="text-sm text-muted-foreground">
-                Update your bio, resume, and contact info
+                Reorder sections, tune density, and keep variants aligned.
+              </p>
+            </Link>
+            <Link
+              to={getAdminPath('jobs')}
+              className="block rounded-lg bg-white/5 p-4 transition-colors hover:bg-white/10"
+            >
+              <p className="font-medium">Capture Jobs</p>
+              <p className="text-sm text-muted-foreground">
+                Save a posting, score the fit, and push it into the application tracker.
               </p>
             </Link>
           </CardContent>

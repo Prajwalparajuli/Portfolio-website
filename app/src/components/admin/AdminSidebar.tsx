@@ -8,18 +8,22 @@ import {
   Activity,
   LogOut,
   ExternalLink,
-  FileText
+  FileText,
+  BriefcaseBusiness,
+  Send
 } from 'lucide-react'
 import { Link, useLocation } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { motion } from 'framer-motion'
-import { getAdminPath, isSecretKeyMode, clearAdminSecretSession } from '@/lib/adminConfig'
+import { getAdminPath } from '@/lib/adminConfig'
 
 const navItems = [
   { href: getAdminPath(), label: 'Dashboard', icon: LayoutDashboard },
   { href: getAdminPath('projects'), label: 'Projects', icon: FolderKanban },
   { href: getAdminPath('skills'), label: 'Skills', icon: Tags },
   { href: getAdminPath('resume'), label: 'Resume', icon: FileText },
+  { href: getAdminPath('jobs'), label: 'Jobs', icon: BriefcaseBusiness },
+  { href: getAdminPath('applications'), label: 'Applications', icon: Send },
   { href: getAdminPath('settings'), label: 'Settings', icon: Settings },
   { href: getAdminPath('activity'), label: 'Activity', icon: Activity },
 ]
@@ -40,7 +44,7 @@ export function AdminSidebar() {
           Admin Canvas
         </motion.h1>
         <p className="text-xs text-muted-foreground mt-1 font-mono">
-          {isSecretKeyMode() ? 'Secret link' : user?.email}
+          {user?.email ?? 'Local dev bypass'}
         </p>
       </div>
 
@@ -97,16 +101,15 @@ export function AdminSidebar() {
           variant="ghost"
           className="w-full justify-start gap-3 text-muted-foreground hover:text-foreground hover:bg-surface rounded-xl"
           onClick={() => {
-            if (isSecretKeyMode()) {
-              clearAdminSecretSession()
-              window.location.href = '/'
-            } else {
+            if (user) {
               signOut()
+              return
             }
+            window.location.href = '/'
           }}
         >
           <LogOut className="h-4 w-4" />
-          {isSecretKeyMode() ? 'Lock admin' : 'Sign Out'}
+          {user ? 'Sign Out' : 'Exit Admin'}
         </Button>
       </div>
     </aside>

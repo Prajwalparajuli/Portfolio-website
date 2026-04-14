@@ -1,0 +1,18 @@
+- generic [ref=e5]:
+  - generic [ref=e6]:
+    - heading "Admin Login" [level=3] [ref=e7]
+    - paragraph [ref=e8]: Sign in to access the admin canvas
+  - generic [ref=e10]:
+    - generic [ref=e11]:
+      - text: Email
+      - generic [ref=e12]:
+        - img [ref=e13]
+        - textbox "Email" [ref=e16]:
+          - /placeholder: admin@example.com
+    - generic [ref=e17]:
+      - text: Password
+      - generic [ref=e18]:
+        - img [ref=e19]
+        - textbox "Password" [ref=e22]:
+          - /placeholder: ••••••••
+    - button "Sign In" [ref=e23] [cursor=pointer]
