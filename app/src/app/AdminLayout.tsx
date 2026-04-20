@@ -7,7 +7,6 @@ import { AdminSidebar } from '@/components/admin/AdminSidebar'
 import { Button } from '@/components/ui/button'
 import { Loader2, ShieldAlert } from 'lucide-react'
 import { isSupabaseConfigured } from '@/lib/supabase'
-import { isAdminAllowlistConfigured } from '@/lib/adminConfig'
 import { preloadAdminRoutes } from './admin/routes'
 
 const devBypassAdmin = (import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV && !isSupabaseConfigured
@@ -61,14 +60,12 @@ export function AdminLayout() {
               </p>
             </div>
           </div>
-          <div className="rounded-xl bg-black/20 border border-white/10 p-3 text-sm text-muted-foreground space-y-1">
-            <p>Signed in as: {user?.email ?? 'unknown user'}</p>
-            <p>
-              {isAdminAllowlistConfigured()
-                ? 'Add this email to the admin allowlist and Supabase admin_users table if it should have access.'
-                : 'Set VITE_ADMIN_ALLOWED_EMAILS and the Supabase admin_users table to enforce admin access properly.'}
-            </p>
-          </div>
+            <div className="rounded-xl bg-black/20 border border-white/10 p-3 text-sm text-muted-foreground space-y-1">
+              <p>Signed in as: {user?.email ?? 'unknown user'}</p>
+              <p>
+                Add this email to the Supabase <code>public.admin_users</code> table if it should have access.
+              </p>
+            </div>
           <div className="flex items-center gap-2">
             <Button
               variant="outline"

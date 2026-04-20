@@ -10,7 +10,10 @@ import {
   ExternalLink,
   FileText,
   BriefcaseBusiness,
-  Send
+  Send,
+  BellRing,
+  Building2,
+  NotebookPen
 } from 'lucide-react'
 import { Link, useLocation } from 'react-router-dom'
 import { cn } from '@/lib/utils'
@@ -23,7 +26,10 @@ const navItems = [
   { href: getAdminPath('skills'), label: 'Skills', icon: Tags },
   { href: getAdminPath('resume'), label: 'Resume', icon: FileText },
   { href: getAdminPath('jobs'), label: 'Jobs', icon: BriefcaseBusiness },
+  { href: getAdminPath('watchlists'), label: 'Watchlists', icon: Building2 },
   { href: getAdminPath('applications'), label: 'Applications', icon: Send },
+  { href: getAdminPath('answers'), label: 'Answer Bank', icon: NotebookPen },
+  { href: getAdminPath('inbox'), label: 'Inbox', icon: BellRing },
   { href: getAdminPath('settings'), label: 'Settings', icon: Settings },
   { href: getAdminPath('activity'), label: 'Activity', icon: Activity },
 ]

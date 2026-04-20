@@ -1,10 +1,4 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-}
+import { corsHeaders, json, requireAdminUser } from '../_shared/common.ts'
 
 const MODEL_BY_TASK = {
   generate_bullets: 'gemini-2.5-flash',
@@ -12,6 +6,7 @@ const MODEL_BY_TASK = {
   improve_bullet: 'gemini-2.5-flash',
   generate_subtitle: 'gemini-2.5-flash',
   tailor_resume: 'gemini-2.5-flash',
+  generate_cover_letter: 'gemini-2.5-flash',
 } as const
 
 type TaskName = keyof typeof MODEL_BY_TASK
@@ -67,16 +62,28 @@ type ResumeAiRequest =
         skills?: string[]
       }
     }
-
-function json(status: number, body: Record<string, unknown>) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: {
-      ...corsHeaders,
-      'Content-Type': 'application/json',
-    },
-  })
-}
+  | {
+      task: 'generate_cover_letter'
+      payload: {
+        job?: {
+          title?: string
+          company?: string
+          location?: string
+          employmentType?: string
+          description?: string
+        }
+        candidate?: {
+          name?: string
+          summary?: string
+          skills?: string[]
+          experience?: {
+            index?: number
+            title?: string
+            bullets?: string[]
+          }[]
+        }
+      }
+    }
 
 function asString(value: unknown, field: string): string {
   if (typeof value !== 'string') {
@@ -166,62 +173,6 @@ function extractJsonObject(text: string): string {
   }
 
   return trimmed.slice(start, end + 1)
-}
-
-function isMissingAdminTable(error: { code?: string; message?: string } | null) {
-  return error?.code === '42P01' || /admin_users|relation .* does not exist/i.test(error?.message ?? '')
-}
-
-async function requireAdminUser(req: Request) {
-  const authHeader = req.headers.get('Authorization')
-  const supabaseUrl = Deno.env.get('SUPABASE_URL')
-  const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')
-
-  if (!authHeader || !supabaseUrl || !supabaseAnonKey) {
-    return { user: null, reason: 'missing-auth' as const }
-  }
-
-  const token = authHeader.replace(/^Bearer\s+/i, '')
-  const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  })
-
-  const { data, error } = await supabase.auth.getUser(token)
-
-  if (error || !data.user) {
-    return { user: null, reason: 'invalid-user' as const }
-  }
-
-  const email = data.user.email?.trim().toLowerCase()
-
-  if (!email) {
-    return { user: null, reason: 'missing-email' as const }
-  }
-
-  const rlsClient = createClient(supabaseUrl, supabaseAnonKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-    global: {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    },
-  })
-
-  const { data: adminRow, error: adminError } = await rlsClient
-    .from('admin_users')
-    .select('email')
-    .eq('email', email)
-    .maybeSingle()
-
-  if (isMissingAdminTable(adminError)) {
-    return { user: null, reason: 'admin-table-missing' as const }
-  }
-
-  if (adminError || !adminRow) {
-    return { user: null, reason: 'not-admin' as const }
-  }
-
-  return { user: data.user, reason: null as const }
 }
 
 async function callGemini(task: TaskName, prompt: string, maxOutputTokens: number) {
@@ -479,6 +430,96 @@ Output as JSON exactly in this format:
   }
 }
 
+async function handleGenerateCoverLetter(payload: {
+  job?: {
+    title?: string
+    company?: string
+    location?: string
+    employmentType?: string
+    description?: string
+  }
+  candidate?: {
+    name?: string
+    summary?: string
+    skills?: string[]
+    experience?: {
+      index?: number
+      title?: string
+      bullets?: string[]
+    }[]
+  }
+}) {
+  const job = payload.job ?? {}
+  const candidate = payload.candidate ?? {}
+
+  const jobTitle = typeof job.title === 'string' ? job.title.trim() : ''
+  const company = typeof job.company === 'string' ? job.company.trim() : ''
+  const location = typeof job.location === 'string' ? job.location.trim() : ''
+  const employmentType = typeof job.employmentType === 'string' ? job.employmentType.trim() : ''
+  const description = typeof job.description === 'string' ? job.description.trim().slice(0, 3000) : ''
+
+  if (!jobTitle && !company && !description) {
+    throw new Error('Cover letter generation requires job details.')
+  }
+
+  const candidateName = typeof candidate.name === 'string' ? candidate.name.trim() : ''
+  const summary = typeof candidate.summary === 'string' ? candidate.summary.trim() : ''
+  const skills = asStringArray(candidate.skills, 'candidate.skills').slice(0, 12).join(', ')
+  const experience = Array.isArray(candidate.experience)
+    ? candidate.experience
+        .filter((entry): entry is { title?: string; bullets?: string[] } => Boolean(entry) && typeof entry === 'object')
+        .slice(0, 3)
+        .map((entry, index) => {
+          const title = typeof entry.title === 'string' ? entry.title.trim() : `Experience ${index + 1}`
+          const bullets = asStringArray(entry.bullets, `candidate.experience[${index}].bullets`)
+            .slice(0, 3)
+            .map((bullet) => `- ${bullet}`)
+            .join('\n')
+          return `${title}\n${bullets}`
+        })
+        .join('\n\n')
+    : ''
+
+  const prompt = `You are an expert technical recruiting writer.
+
+Write a concise, specific cover letter for the candidate below. The goal is a high-quality draft for a real job application.
+
+RULES:
+- 3 short paragraphs plus a sign-off
+- 220-320 words total
+- Professional, direct, and specific
+- Use concrete overlap from the job description and the candidate resume context
+- Do not invent employers, metrics, or years of experience
+- Do not mention being an AI or that this is a draft
+- Do not include postal addresses or the candidate's contact block
+- Start with "Dear Hiring Team,"
+- End with "Sincerely," on one line and the candidate name on the next line
+
+JOB:
+Title: ${jobTitle || 'Not specified'}
+Company: ${company || 'Not specified'}
+Location: ${location || 'Not specified'}
+Employment type: ${employmentType || 'Not specified'}
+Description:
+${description || 'Not provided'}
+
+CANDIDATE:
+Name: ${candidateName || 'Candidate'}
+Summary:
+${summary || 'Not provided'}
+
+Skills:
+${skills || 'Not provided'}
+
+Relevant experience:
+${experience || 'Not provided'}
+
+IMPORTANT: Output ONLY the cover letter text. No markdown. No extra commentary.`
+
+  const text = await callGemini('generate_cover_letter', prompt, 1200)
+  return { text: text.trim() }
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -524,6 +565,9 @@ Deno.serve(async (req) => {
         break
       case 'tailor_resume':
         data = await handleTailorResume(body.payload)
+        break
+      case 'generate_cover_letter':
+        data = await handleGenerateCoverLetter(body.payload)
         break
       default:
         return json(400, { error: 'Unsupported resume AI task.' })

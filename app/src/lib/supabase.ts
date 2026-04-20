@@ -9,6 +9,21 @@ import {
   JobPostingFormData,
   ApplicationRecord,
   ApplicationStatus,
+  SavedJobSearch,
+  SavedJobSearchInput,
+  SavedJobSearchPatch,
+  JobSyncRun,
+  JobSyncRunInput,
+  CandidateEvidenceItem,
+  JobMatch,
+  CompanyWatchlist,
+  CompanyWatchlistInput,
+  NotificationPreference,
+  NotificationItem,
+  CandidateAnswer,
+  InterviewPrepNote,
+  ContactTouchpoint,
+  ProofOfWorkHighlight,
 } from '@/types'
 import {
   ResumeContent,
@@ -67,6 +82,7 @@ type JobPostingRow = {
   id: string
   source: JobPosting['source']
   external_id: string
+  watchlist_id?: string | null
   title: string
   company: string
   location: string
@@ -76,6 +92,9 @@ type JobPostingRow = {
   job_url: string
   description: string
   fit_notes: string
+  discovery_status?: JobPosting['discovery_status']
+  source_text?: string
+  embedding_updated_at?: string | null
   archived_at: string | null
   created_at: string
   updated_at: string
@@ -90,6 +109,177 @@ type ApplicationRecordRow = {
   applied_at: string | null
   notes: string
   cover_letter: string
+  created_at: string
+  updated_at: string
+}
+
+type SavedJobSearchRow = {
+  id: string
+  name: string
+  source: SavedJobSearch['source']
+  board_or_site: string
+  query: string
+  location: string
+  remote_only: boolean
+  result_limit: number
+  is_enabled?: boolean
+  last_run_at?: string | null
+  last_error?: string
+  created_at: string
+  updated_at: string
+}
+
+type JobSyncRunRow = {
+  id: string
+  saved_job_search_id: string | null
+  watchlist_id?: string | null
+  run_mode: 'single' | 'enabled_batch'
+  status: 'running' | 'success' | 'error'
+  source: JobSyncRun['source']
+  label: string
+  board_or_site: string
+  query: string
+  location: string
+  discovery_status?: string
+  discovered_source?: string
+  failure_stage?: string
+  result_count: number
+  imported_count: number
+  error_message: string
+  metadata?: Record<string, unknown>
+  started_at: string
+  completed_at: string | null
+}
+
+type CandidateEvidenceItemRow = {
+  id: string
+  source_kind: CandidateEvidenceItem['source_kind']
+  source_id: string
+  label: string
+  content: string
+  embedding_updated_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+type JobMatchRow = {
+  id: string
+  job_posting_id: string
+  best_evidence_item_id: string | null
+  semantic_score: number
+  keyword_score: number
+  preference_score: number
+  total_score: number
+  band: JobMatch['band']
+  reason_summary: string
+  best_evidence_label: string
+  matched_skill_names: string[]
+  matched_project_titles: string[]
+  matched_keywords: string[]
+  missing_signals: string[]
+  evidence_item_ids: string[]
+  refreshed_at: string
+  created_at: string
+  updated_at: string
+}
+
+type CompanyWatchlistRow = {
+  id: string
+  company_name: string
+  careers_url: string
+  source_hint: CompanyWatchlist['source_hint']
+  board_or_site: string
+  preferred_query: string
+  location_hint: string
+  priority: CompanyWatchlist['priority']
+  is_enabled: boolean
+  last_discovery_at: string | null
+  last_sync_at: string | null
+  last_error: string
+  created_at: string
+  updated_at: string
+}
+
+type NotificationPreferenceRow = {
+  id: string
+  profile_key: string
+  email_enabled: boolean
+  inbox_enabled: boolean
+  strong_match_enabled: boolean
+  sync_failure_enabled: boolean
+  follow_up_enabled: boolean
+  stale_application_enabled: boolean
+  weekly_digest_enabled: boolean
+  digest_hour: number
+  timezone: string
+  created_at: string
+  updated_at: string
+}
+
+type NotificationItemRow = {
+  id: string
+  type: NotificationItem['type']
+  title: string
+  body: string
+  link_path: string
+  channel: NotificationItem['channel']
+  is_read: boolean
+  application_id: string | null
+  job_posting_id: string | null
+  company_watchlist_id: string | null
+  due_at: string | null
+  sent_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+type CandidateAnswerRow = {
+  id: string
+  prompt_key: string
+  label: string
+  category: string
+  answer: string
+  created_at: string
+  updated_at: string
+}
+
+type InterviewPrepNoteRow = {
+  id: string
+  application_id: string
+  generated_summary: string
+  talking_points: unknown
+  technical_focus: unknown
+  recruiter_questions: unknown
+  tell_me_about_yourself: string
+  notes: string
+  created_at: string
+  updated_at: string
+}
+
+type ContactTouchpointRow = {
+  id: string
+  application_id: string | null
+  company: string
+  contact_name: string
+  contact_role: string
+  channel: ContactTouchpoint['channel']
+  note: string
+  occurred_at: string
+  created_at: string
+  updated_at: string
+}
+
+type ProofOfWorkHighlightRow = {
+  id: string
+  application_id: string | null
+  job_posting_id: string | null
+  source_kind: ProofOfWorkHighlight['source_kind']
+  source_id: string
+  title: string
+  summary: string
+  url: string
+  relevance_reason: string
+  display_order: number
   created_at: string
   updated_at: string
 }
@@ -116,6 +306,38 @@ export async function getCurrentUser() {
     return user
   } catch {
     return null
+  }
+}
+
+export async function isCurrentUserAdmin(): Promise<boolean> {
+  if (!isSupabaseConfigured) return false
+
+  try {
+    const { data: { user } } = await supabase.auth.getUser()
+    const email = user?.email?.trim().toLowerCase()
+    if (!email) return false
+
+    const adminRpc = await supabase.rpc('is_admin_user')
+    if (!adminRpc.error && typeof adminRpc.data === 'boolean') {
+      return adminRpc.data
+    }
+
+    const { data, error } = await supabase
+      .from('admin_users')
+      .select('email')
+      .eq('email', email)
+      .maybeSingle()
+
+    if (error) {
+      if (isMissingTableError(error)) return false
+      console.error('Error checking admin status:', error)
+      return false
+    }
+
+    return Boolean(data?.email)
+  } catch (error) {
+    console.error('Error checking admin status:', error)
+    return false
   }
 }
 
@@ -719,11 +941,38 @@ export async function createJobPosting(job: JobPostingFormData): Promise<JobPost
 }
 
 export async function upsertImportedJobPosting(job: JobPostingFormData): Promise<JobPosting | null> {
-  const { data, error } = await supabase
+  const externalId = job.external_id?.trim() ?? ''
+
+  if (!externalId) {
+    return createJobPosting(job)
+  }
+
+  const existing = await supabase
     .from('job_postings')
-    .upsert(job, { onConflict: 'source,external_id' })
-    .select('*')
-    .single()
+    .select('id')
+    .eq('source', job.source)
+    .eq('external_id', externalId)
+    .maybeSingle()
+
+  if (existing.error) {
+    console.error('Error looking up imported job posting:', existing.error)
+    throw existing.error
+  }
+
+  const write = existing.data?.id
+    ? await supabase
+        .from('job_postings')
+        .update(job)
+        .eq('id', existing.data.id)
+        .select('*')
+        .single()
+    : await supabase
+        .from('job_postings')
+        .insert(job)
+        .select('*')
+        .single()
+
+  const { data, error } = write
 
   if (error) {
     console.error('Error importing job posting:', error)
@@ -830,6 +1079,496 @@ export async function deleteApplication(id: string): Promise<void> {
   if (error) {
     console.error('Error deleting application:', error)
     throw error
+  }
+}
+
+export async function getSavedJobSearches(): Promise<SavedJobSearch[] | null> {
+  if (!isSupabaseConfigured) return []
+  try {
+    const { data, error } = await supabase
+      .from('saved_job_searches')
+      .select('*')
+      .order('updated_at', { ascending: false })
+
+    if (error) {
+      if (isMissingTableError(error)) return null
+      console.error('Error fetching saved job searches:', error)
+      return []
+    }
+
+    return (data ?? []).map((row) => mapSavedJobSearchRow(row as SavedJobSearchRow))
+  } catch (error) {
+    console.error('Error fetching saved job searches:', error)
+    return []
+  }
+}
+
+export async function createSavedJobSearch(
+  payload: SavedJobSearchInput
+): Promise<SavedJobSearch | null> {
+  const { data, error } = await supabase
+    .from('saved_job_searches')
+    .insert(payload)
+    .select('*')
+    .single()
+
+  if (error) {
+    console.error('Error creating saved job search:', error)
+    throw error
+  }
+
+  return mapSavedJobSearchRow(data as SavedJobSearchRow)
+}
+
+export async function updateSavedJobSearch(
+  id: string,
+  patch: SavedJobSearchPatch
+): Promise<SavedJobSearch | null> {
+  const { data, error } = await supabase
+    .from('saved_job_searches')
+    .update(patch)
+    .eq('id', id)
+    .select('*')
+    .single()
+
+  if (error) {
+    console.error('Error updating saved job search:', error)
+    throw error
+  }
+
+  return mapSavedJobSearchRow(data as SavedJobSearchRow)
+}
+
+export async function deleteSavedJobSearch(id: string): Promise<void> {
+  const { error } = await supabase
+    .from('saved_job_searches')
+    .delete()
+    .eq('id', id)
+
+  if (error) {
+    console.error('Error deleting saved job search:', error)
+    throw error
+  }
+}
+
+export async function getJobSyncRuns(limit = 12): Promise<JobSyncRun[] | null> {
+  if (!isSupabaseConfigured) return []
+  try {
+    const { data, error } = await supabase
+      .from('job_sync_runs')
+      .select('*')
+      .order('started_at', { ascending: false })
+      .limit(limit)
+
+    if (error) {
+      if (isMissingTableError(error)) return null
+      console.error('Error fetching job sync runs:', error)
+      return []
+    }
+
+    return (data ?? []).map((row) => mapJobSyncRunRow(row as JobSyncRunRow))
+  } catch (error) {
+    console.error('Error fetching job sync runs:', error)
+    return []
+  }
+}
+
+export async function createJobSyncRun(payload: JobSyncRunInput): Promise<JobSyncRun | null> {
+  const { data, error } = await supabase
+    .from('job_sync_runs')
+    .insert(payload)
+    .select('*')
+    .single()
+
+  if (error) {
+    console.error('Error creating job sync run:', error)
+    throw error
+  }
+
+  return mapJobSyncRunRow(data as JobSyncRunRow)
+}
+
+export async function updateJobSyncRun(
+  id: string,
+  patch: Partial<JobSyncRunInput>
+): Promise<JobSyncRun | null> {
+  const { data, error } = await supabase
+    .from('job_sync_runs')
+    .update(patch)
+    .eq('id', id)
+    .select('*')
+    .single()
+
+  if (error) {
+    console.error('Error updating job sync run:', error)
+    throw error
+  }
+
+  return mapJobSyncRunRow(data as JobSyncRunRow)
+}
+
+export async function getCandidateEvidenceItems(): Promise<CandidateEvidenceItem[] | null> {
+  if (!isSupabaseConfigured) return []
+  try {
+    const { data, error } = await supabase
+      .from('candidate_evidence_items')
+      .select('*')
+      .order('updated_at', { ascending: false })
+
+    if (error) {
+      if (isMissingTableError(error)) return null
+      console.error('Error fetching candidate evidence:', error)
+      return []
+    }
+
+    return (data ?? []).map((row) => mapCandidateEvidenceItemRow(row as CandidateEvidenceItemRow))
+  } catch (error) {
+    console.error('Error fetching candidate evidence:', error)
+    return []
+  }
+}
+
+export async function getJobMatches(): Promise<JobMatch[] | null> {
+  if (!isSupabaseConfigured) return []
+  try {
+    const { data, error } = await supabase
+      .from('job_matches')
+      .select('*')
+      .order('total_score', { ascending: false })
+
+    if (error) {
+      if (isMissingTableError(error)) return null
+      console.error('Error fetching job matches:', error)
+      return []
+    }
+
+    return (data ?? []).map((row) => mapJobMatchRow(row as JobMatchRow))
+  } catch (error) {
+    console.error('Error fetching job matches:', error)
+    return []
+  }
+}
+
+export async function getCompanyWatchlists(): Promise<CompanyWatchlist[] | null> {
+  if (!isSupabaseConfigured) return []
+  try {
+    const { data, error } = await supabase
+      .from('company_watchlists')
+      .select('*')
+      .order('updated_at', { ascending: false })
+
+    if (error) {
+      if (isMissingTableError(error)) return null
+      console.error('Error fetching company watchlists:', error)
+      return []
+    }
+
+    return (data ?? []).map((row) => mapCompanyWatchlistRow(row as CompanyWatchlistRow))
+  } catch (error) {
+    console.error('Error fetching company watchlists:', error)
+    return []
+  }
+}
+
+export async function createCompanyWatchlist(
+  payload: CompanyWatchlistInput
+): Promise<CompanyWatchlist | null> {
+  const { data, error } = await supabase
+    .from('company_watchlists')
+    .insert(payload)
+    .select('*')
+    .single()
+
+  if (error) {
+    console.error('Error creating company watchlist:', error)
+    throw error
+  }
+
+  return mapCompanyWatchlistRow(data as CompanyWatchlistRow)
+}
+
+export async function updateCompanyWatchlist(
+  id: string,
+  patch: Partial<CompanyWatchlistInput & Pick<CompanyWatchlist, 'last_discovery_at' | 'last_sync_at' | 'last_error'>>
+): Promise<CompanyWatchlist | null> {
+  const { data, error } = await supabase
+    .from('company_watchlists')
+    .update(patch)
+    .eq('id', id)
+    .select('*')
+    .single()
+
+  if (error) {
+    console.error('Error updating company watchlist:', error)
+    throw error
+  }
+
+  return mapCompanyWatchlistRow(data as CompanyWatchlistRow)
+}
+
+export async function deleteCompanyWatchlist(id: string): Promise<void> {
+  const { error } = await supabase
+    .from('company_watchlists')
+    .delete()
+    .eq('id', id)
+
+  if (error) {
+    console.error('Error deleting company watchlist:', error)
+    throw error
+  }
+}
+
+export async function getNotificationPreferences(): Promise<NotificationPreference | null> {
+  if (!isSupabaseConfigured) return null
+
+  try {
+    const { data, error } = await supabase
+      .from('notification_preferences')
+      .select('*')
+      .eq('profile_key', 'primary')
+      .maybeSingle()
+
+    if (error) {
+      if (isMissingTableError(error)) return null
+      console.error('Error fetching notification preferences:', error)
+      return null
+    }
+
+    return data ? mapNotificationPreferenceRow(data as NotificationPreferenceRow) : null
+  } catch (error) {
+    console.error('Error fetching notification preferences:', error)
+    return null
+  }
+}
+
+export async function saveNotificationPreferences(
+  patch: Partial<Omit<NotificationPreference, 'id' | 'created_at' | 'updated_at'>>
+): Promise<NotificationPreference | null> {
+  const payload = {
+    profile_key: 'primary',
+    ...patch,
+  }
+
+  const { data, error } = await supabase
+    .from('notification_preferences')
+    .upsert(payload, { onConflict: 'profile_key' })
+    .select('*')
+    .single()
+
+  if (error) {
+    console.error('Error saving notification preferences:', error)
+    throw error
+  }
+
+  return mapNotificationPreferenceRow(data as NotificationPreferenceRow)
+}
+
+export async function getNotificationItems(limit = 50): Promise<NotificationItem[] | null> {
+  if (!isSupabaseConfigured) return []
+  try {
+    const { data, error } = await supabase
+      .from('notification_items')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(limit)
+
+    if (error) {
+      if (isMissingTableError(error)) return null
+      console.error('Error fetching notification items:', error)
+      return []
+    }
+
+    return (data ?? []).map((row) => mapNotificationItemRow(row as NotificationItemRow))
+  } catch (error) {
+    console.error('Error fetching notification items:', error)
+    return []
+  }
+}
+
+export async function updateNotificationItem(
+  id: string,
+  patch: Partial<Pick<NotificationItem, 'is_read' | 'sent_at'>>
+): Promise<NotificationItem | null> {
+  const { data, error } = await supabase
+    .from('notification_items')
+    .update(patch)
+    .eq('id', id)
+    .select('*')
+    .single()
+
+  if (error) {
+    console.error('Error updating notification item:', error)
+    throw error
+  }
+
+  return mapNotificationItemRow(data as NotificationItemRow)
+}
+
+export async function getCandidateAnswers(): Promise<CandidateAnswer[] | null> {
+  if (!isSupabaseConfigured) return []
+  try {
+    const { data, error } = await supabase
+      .from('candidate_answers')
+      .select('*')
+      .order('category', { ascending: true })
+      .order('label', { ascending: true })
+
+    if (error) {
+      if (isMissingTableError(error)) return null
+      console.error('Error fetching candidate answers:', error)
+      return []
+    }
+
+    return (data ?? []).map((row) => mapCandidateAnswerRow(row as CandidateAnswerRow))
+  } catch (error) {
+    console.error('Error fetching candidate answers:', error)
+    return []
+  }
+}
+
+export async function upsertCandidateAnswer(
+  payload: Pick<CandidateAnswer, 'prompt_key' | 'label' | 'category' | 'answer'>
+): Promise<CandidateAnswer | null> {
+  const { data, error } = await supabase
+    .from('candidate_answers')
+    .upsert(payload, { onConflict: 'prompt_key' })
+    .select('*')
+    .single()
+
+  if (error) {
+    console.error('Error saving candidate answer:', error)
+    throw error
+  }
+
+  return mapCandidateAnswerRow(data as CandidateAnswerRow)
+}
+
+export async function deleteCandidateAnswer(id: string): Promise<void> {
+  const { error } = await supabase
+    .from('candidate_answers')
+    .delete()
+    .eq('id', id)
+
+  if (error) {
+    console.error('Error deleting candidate answer:', error)
+    throw error
+  }
+}
+
+export async function getInterviewPrepNotes(): Promise<InterviewPrepNote[] | null> {
+  if (!isSupabaseConfigured) return []
+  try {
+    const { data, error } = await supabase
+      .from('interview_prep_notes')
+      .select('*')
+      .order('updated_at', { ascending: false })
+
+    if (error) {
+      if (isMissingTableError(error)) return null
+      console.error('Error fetching interview prep notes:', error)
+      return []
+    }
+
+    return (data ?? []).map((row) => mapInterviewPrepNoteRow(row as InterviewPrepNoteRow))
+  } catch (error) {
+    console.error('Error fetching interview prep notes:', error)
+    return []
+  }
+}
+
+export async function saveInterviewPrepNote(
+  payload: Omit<InterviewPrepNote, 'id' | 'created_at' | 'updated_at'>
+): Promise<InterviewPrepNote | null> {
+  const { data, error } = await supabase
+    .from('interview_prep_notes')
+    .upsert({
+      application_id: payload.application_id,
+      generated_summary: payload.generated_summary,
+      talking_points: payload.talking_points,
+      technical_focus: payload.technical_focus,
+      recruiter_questions: payload.recruiter_questions,
+      tell_me_about_yourself: payload.tell_me_about_yourself,
+      notes: payload.notes,
+    }, { onConflict: 'application_id' })
+    .select('*')
+    .single()
+
+  if (error) {
+    console.error('Error saving interview prep note:', error)
+    throw error
+  }
+
+  return mapInterviewPrepNoteRow(data as InterviewPrepNoteRow)
+}
+
+export async function getContactTouchpoints(): Promise<ContactTouchpoint[] | null> {
+  if (!isSupabaseConfigured) return []
+  try {
+    const { data, error } = await supabase
+      .from('contact_touchpoints')
+      .select('*')
+      .order('occurred_at', { ascending: false })
+
+    if (error) {
+      if (isMissingTableError(error)) return null
+      console.error('Error fetching contact touchpoints:', error)
+      return []
+    }
+
+    return (data ?? []).map((row) => mapContactTouchpointRow(row as ContactTouchpointRow))
+  } catch (error) {
+    console.error('Error fetching contact touchpoints:', error)
+    return []
+  }
+}
+
+export async function createContactTouchpoint(
+  payload: Omit<ContactTouchpoint, 'id' | 'created_at' | 'updated_at'>
+): Promise<ContactTouchpoint | null> {
+  const { data, error } = await supabase
+    .from('contact_touchpoints')
+    .insert(payload)
+    .select('*')
+    .single()
+
+  if (error) {
+    console.error('Error creating contact touchpoint:', error)
+    throw error
+  }
+
+  return mapContactTouchpointRow(data as ContactTouchpointRow)
+}
+
+export async function deleteContactTouchpoint(id: string): Promise<void> {
+  const { error } = await supabase
+    .from('contact_touchpoints')
+    .delete()
+    .eq('id', id)
+
+  if (error) {
+    console.error('Error deleting contact touchpoint:', error)
+    throw error
+  }
+}
+
+export async function getProofOfWorkHighlights(): Promise<ProofOfWorkHighlight[] | null> {
+  if (!isSupabaseConfigured) return []
+  try {
+    const { data, error } = await supabase
+      .from('proof_of_work_highlights')
+      .select('*')
+      .order('display_order', { ascending: true })
+
+    if (error) {
+      if (isMissingTableError(error)) return null
+      console.error('Error fetching proof of work highlights:', error)
+      return []
+    }
+
+    return (data ?? []).map((row) => mapProofOfWorkHighlightRow(row as ProofOfWorkHighlightRow))
+  } catch (error) {
+    console.error('Error fetching proof of work highlights:', error)
+    return []
   }
 }
 
@@ -940,6 +1679,7 @@ function mapJobPostingRow(row: JobPostingRow): JobPosting {
     id: row.id,
     source: row.source,
     external_id: row.external_id ?? '',
+    watchlist_id: row.watchlist_id ?? null,
     title: row.title,
     company: row.company ?? '',
     location: row.location ?? '',
@@ -949,6 +1689,9 @@ function mapJobPostingRow(row: JobPostingRow): JobPosting {
     job_url: row.job_url ?? '',
     description: row.description ?? '',
     fit_notes: row.fit_notes ?? '',
+    discovery_status: row.discovery_status ?? 'manual',
+    source_text: row.source_text ?? '',
+    embedding_updated_at: row.embedding_updated_at ?? null,
     archived_at: row.archived_at ?? null,
     created_at: row.created_at,
     updated_at: row.updated_at,
@@ -984,6 +1727,199 @@ function mapResumeVariantRow(row: ResumeVariantRow): ResumeVariant {
     content: row.content,
     createdAt: row.created_at ?? null,
     updatedAt: row.updated_at ?? null,
+  }
+}
+
+function mapSavedJobSearchRow(row: SavedJobSearchRow): SavedJobSearch {
+  return {
+    id: row.id,
+    name: row.name,
+    source: row.source,
+    board_or_site: row.board_or_site ?? '',
+    query: row.query ?? '',
+    location: row.location ?? '',
+    remote_only: row.remote_only ?? false,
+    result_limit: row.result_limit ?? 20,
+    is_enabled: row.is_enabled ?? true,
+    last_run_at: row.last_run_at ?? null,
+    last_error: row.last_error ?? '',
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  }
+}
+
+function mapJobSyncRunRow(row: JobSyncRunRow): JobSyncRun {
+  return {
+    id: row.id,
+    saved_job_search_id: row.saved_job_search_id ?? null,
+    watchlist_id: row.watchlist_id ?? null,
+    run_mode: row.run_mode,
+    status: row.status,
+    source: row.source,
+    label: row.label ?? '',
+    board_or_site: row.board_or_site ?? '',
+    query: row.query ?? '',
+    location: row.location ?? '',
+    discovery_status: row.discovery_status ?? '',
+    discovered_source: row.discovered_source ?? '',
+    failure_stage: row.failure_stage ?? '',
+    result_count: row.result_count ?? 0,
+    imported_count: row.imported_count ?? 0,
+    error_message: row.error_message ?? '',
+    metadata: row.metadata ?? {},
+    started_at: row.started_at,
+    completed_at: row.completed_at ?? null,
+  }
+}
+
+function mapCandidateEvidenceItemRow(row: CandidateEvidenceItemRow): CandidateEvidenceItem {
+  return {
+    id: row.id,
+    source_kind: row.source_kind,
+    source_id: row.source_id ?? '',
+    label: row.label ?? '',
+    content: row.content ?? '',
+    embedding_updated_at: row.embedding_updated_at ?? null,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  }
+}
+
+function mapJobMatchRow(row: JobMatchRow): JobMatch {
+  return {
+    id: row.id,
+    job_posting_id: row.job_posting_id,
+    best_evidence_item_id: row.best_evidence_item_id ?? null,
+    semantic_score: Number(row.semantic_score ?? 0),
+    keyword_score: Number(row.keyword_score ?? 0),
+    preference_score: Number(row.preference_score ?? 0),
+    total_score: Number(row.total_score ?? 0),
+    band: row.band ?? 'low',
+    reason_summary: row.reason_summary ?? '',
+    best_evidence_label: row.best_evidence_label ?? '',
+    matched_skill_names: Array.isArray(row.matched_skill_names) ? row.matched_skill_names : [],
+    matched_project_titles: Array.isArray(row.matched_project_titles) ? row.matched_project_titles : [],
+    matched_keywords: Array.isArray(row.matched_keywords) ? row.matched_keywords : [],
+    missing_signals: Array.isArray(row.missing_signals) ? row.missing_signals : [],
+    evidence_item_ids: Array.isArray(row.evidence_item_ids) ? row.evidence_item_ids : [],
+    refreshed_at: row.refreshed_at,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  }
+}
+
+function mapCompanyWatchlistRow(row: CompanyWatchlistRow): CompanyWatchlist {
+  return {
+    id: row.id,
+    company_name: row.company_name ?? '',
+    careers_url: row.careers_url ?? '',
+    source_hint: row.source_hint ?? 'auto',
+    board_or_site: row.board_or_site ?? '',
+    preferred_query: row.preferred_query ?? '',
+    location_hint: row.location_hint ?? '',
+    priority: row.priority ?? 'medium',
+    is_enabled: row.is_enabled ?? true,
+    last_discovery_at: row.last_discovery_at ?? null,
+    last_sync_at: row.last_sync_at ?? null,
+    last_error: row.last_error ?? '',
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  }
+}
+
+function mapNotificationPreferenceRow(row: NotificationPreferenceRow): NotificationPreference {
+  return {
+    id: row.id,
+    profile_key: row.profile_key,
+    email_enabled: row.email_enabled ?? true,
+    inbox_enabled: row.inbox_enabled ?? true,
+    strong_match_enabled: row.strong_match_enabled ?? true,
+    sync_failure_enabled: row.sync_failure_enabled ?? true,
+    follow_up_enabled: row.follow_up_enabled ?? true,
+    stale_application_enabled: row.stale_application_enabled ?? true,
+    weekly_digest_enabled: row.weekly_digest_enabled ?? true,
+    digest_hour: Number(row.digest_hour ?? 8),
+    timezone: row.timezone ?? 'America/Chicago',
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  }
+}
+
+function mapNotificationItemRow(row: NotificationItemRow): NotificationItem {
+  return {
+    id: row.id,
+    type: row.type,
+    title: row.title ?? '',
+    body: row.body ?? '',
+    link_path: row.link_path ?? '',
+    channel: row.channel ?? 'inbox',
+    is_read: row.is_read ?? false,
+    application_id: row.application_id ?? null,
+    job_posting_id: row.job_posting_id ?? null,
+    company_watchlist_id: row.company_watchlist_id ?? null,
+    due_at: row.due_at ?? null,
+    sent_at: row.sent_at ?? null,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  }
+}
+
+function mapCandidateAnswerRow(row: CandidateAnswerRow): CandidateAnswer {
+  return {
+    id: row.id,
+    prompt_key: row.prompt_key ?? '',
+    label: row.label ?? '',
+    category: row.category ?? 'general',
+    answer: row.answer ?? '',
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  }
+}
+
+function mapInterviewPrepNoteRow(row: InterviewPrepNoteRow): InterviewPrepNote {
+  return {
+    id: row.id,
+    application_id: row.application_id,
+    generated_summary: row.generated_summary ?? '',
+    talking_points: parseStringArray(row.talking_points),
+    technical_focus: parseStringArray(row.technical_focus),
+    recruiter_questions: parseStringArray(row.recruiter_questions),
+    tell_me_about_yourself: row.tell_me_about_yourself ?? '',
+    notes: row.notes ?? '',
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  }
+}
+
+function mapContactTouchpointRow(row: ContactTouchpointRow): ContactTouchpoint {
+  return {
+    id: row.id,
+    application_id: row.application_id ?? null,
+    company: row.company ?? '',
+    contact_name: row.contact_name ?? '',
+    contact_role: row.contact_role ?? '',
+    channel: row.channel ?? 'email',
+    note: row.note ?? '',
+    occurred_at: row.occurred_at,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  }
+}
+
+function mapProofOfWorkHighlightRow(row: ProofOfWorkHighlightRow): ProofOfWorkHighlight {
+  return {
+    id: row.id,
+    application_id: row.application_id ?? null,
+    job_posting_id: row.job_posting_id ?? null,
+    source_kind: row.source_kind,
+    source_id: row.source_id ?? '',
+    title: row.title ?? '',
+    summary: row.summary ?? '',
+    url: row.url ?? '',
+    relevance_reason: row.relevance_reason ?? '',
+    display_order: Number(row.display_order ?? 0),
+    created_at: row.created_at,
+    updated_at: row.updated_at,
   }
 }
 
@@ -1039,6 +1975,11 @@ function parseEducation(value: string | undefined): EducationEntry[] {
   } catch {
     return []
   }
+}
+
+function parseStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value.filter((entry): entry is string => typeof entry === 'string' && entry.length > 0)
 }
 
 function getDefaultSettings(): PortfolioSettings {

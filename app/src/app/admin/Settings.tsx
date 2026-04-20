@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -17,32 +17,58 @@ export function AdminSettings() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
   const [saveMessage, setSaveMessage] = useState<string | null>(null)
+  const lastSavedSnapshotRef = useRef('')
+  const hasHydratedRef = useRef(false)
 
   useEffect(() => {
-    getSettings().then(setSettings)
+    getSettings().then((data) => {
+      setSettings(data)
+      lastSavedSnapshotRef.current = JSON.stringify(data)
+      hasHydratedRef.current = true
+    })
   }, [])
 
-  const handleSave = async () => {
-    if (!settings) return
-
+  const persistSettings = useCallback(async (nextSettings: PortfolioSettings, announce = false) => {
     setIsSubmitting(true)
-    setSaveMessage(null)
+    if (announce) {
+      setSaveMessage(null)
+    }
 
     try {
-      const updates = Object.entries(settings).map(([key, value]) => {
+      const updates = Object.entries(nextSettings).map(([key, value]) => {
         if (key === 'education') return updateSetting(key, JSON.stringify(Array.isArray(value) ? value : []))
         return updateSetting(key, typeof value === 'string' ? value || '' : '')
       })
       await Promise.all(updates)
-      await syncCandidateProfileFromSettings(settings)
-      setSaveMessage('Settings saved successfully!')
-      setTimeout(() => setSaveMessage(null), 3000)
+      await syncCandidateProfileFromSettings(nextSettings)
+      lastSavedSnapshotRef.current = JSON.stringify(nextSettings)
+      setSaveMessage(announce ? 'Settings saved successfully!' : 'Autosaved')
+      setTimeout(() => setSaveMessage(null), announce ? 3000 : 1800)
     } catch (error) {
       console.error('Error saving settings:', error)
       setSaveMessage('Error saving settings. Please try again.')
     } finally {
       setIsSubmitting(false)
     }
+  }, [])
+
+  useEffect(() => {
+    if (!settings || !hasHydratedRef.current) return
+
+    const nextSnapshot = JSON.stringify(settings)
+    if (nextSnapshot === lastSavedSnapshotRef.current) return
+
+    setSaveMessage('Autosaving…')
+    const timeoutId = window.setTimeout(() => {
+      void persistSettings(settings)
+    }, 700)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [settings, persistSettings])
+
+  const handleSave = async () => {
+    if (!settings) return
+    await persistSettings(settings, true)
   }
 
   const handleResumeUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {

@@ -17,9 +17,9 @@ import {
 import {
   getSettings, getAllProjects, getSkills, getJobPostings,
   getResumeWorkspace, saveResumeVariant, createResumeVariant, deleteResumeVariant,
-  syncCandidateProfileFromSettings, isSupabaseConfigured
+  syncCandidateProfileFromSettings, isSupabaseConfigured, getApplications, updateApplication
 } from '@/lib/supabase'
-import { JobPosting, PortfolioSettings } from '@/types'
+import { ApplicationRecord, JobPosting, PortfolioSettings } from '@/types'
 import { Project } from '@/types'
 import { Skill } from '@/types'
 import {
@@ -445,6 +445,41 @@ function buildJobVariantName(job: JobPosting): string {
   const parts = [job.company.trim(), job.title.trim()].filter(Boolean)
   const compact = parts.join(' · ')
   return compact || 'Tailored Resume'
+}
+
+function buildVariantSnapshot(variant: ResumeVariant | null, content: ResumeContent | null): string {
+  if (!variant || !content) return ''
+
+  return JSON.stringify({
+    id: variant.id,
+    name: variant.name,
+    variantType: variant.variantType,
+    isPrimary: variant.isPrimary,
+    sourceJobTitle: variant.sourceJobTitle,
+    sourceJobCompany: variant.sourceJobCompany,
+    sourceJobUrl: variant.sourceJobUrl,
+    notes: variant.notes,
+    content,
+  })
+}
+
+function mergeSavedVariantList(
+  variants: ResumeVariant[],
+  savedVariant: ResumeVariant,
+  previousVariantId?: string | null
+): ResumeVariant[] {
+  const next = variants
+    .filter((variant) => variant.id !== savedVariant.id && variant.id !== previousVariantId)
+    .map((variant) =>
+      savedVariant.isPrimary
+        ? {
+            ...variant,
+            isPrimary: false,
+          }
+        : variant
+    )
+
+  return [savedVariant, ...next]
 }
 
 // ─── bullet quality ──────────────────────────────────────────────────────────
@@ -1084,12 +1119,14 @@ export function AdminResumeEditor() {
   const [projects, setProjects] = useState<Project[]>([])
   const [skills, setSkills] = useState<Skill[]>([])
   const [jobPostings, setJobPostings] = useState<JobPosting[]>([])
+  const [applications, setApplications] = useState<ApplicationRecord[]>([])
   const [resume, setResume] = useState<ResumeContent | null>(null)
   const [resumeVariants, setResumeVariants] = useState<ResumeVariant[]>([])
   const [activeVariantId, setActiveVariantId] = useState<string | null>(null)
   const [variantsSupported, setVariantsSupported] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saveMsg, setSaveMsg] = useState<string | null>(null)
+  const [autosaveState, setAutosaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [showPreview, setShowPreview] = useState(true)
   const [activeSection, setActiveSection] = useState<ResumeSection['type'] | null>('summary')
   const [summaryGenerating, setSummaryGenerating] = useState(false)
@@ -1102,6 +1139,8 @@ export function AdminResumeEditor() {
   const [utilityTab, setUtilityTab] = useState<'resume' | 'layout' | 'tailor'>('resume')
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const hydratedSelectedJobKeyRef = useRef<string | null>(null)
+  const lastSavedVariantSnapshotRef = useRef('')
+  const hasHydratedResumeRef = useRef(false)
 
   const loadWorkspace = useCallback(
     async (nextSettings: PortfolioSettings, preferredVariantId?: string | null) => {
@@ -1111,23 +1150,29 @@ export function AdminResumeEditor() {
         workspace.variants.find((variant) => variant.isPrimary) ??
         workspace.variants[0] ??
         null
+      const normalizedContent = selectedVariant
+        ? normalizeResumeForSettings(selectedVariant.content, nextSettings)
+        : null
 
       setVariantsSupported(workspace.variantsSupported)
       setResumeVariants(workspace.variants)
       setActiveVariantId(selectedVariant?.id ?? null)
-      setResume(selectedVariant ? normalizeResumeForSettings(selectedVariant.content, nextSettings) : null)
+      setResume(normalizedContent)
+      lastSavedVariantSnapshotRef.current = buildVariantSnapshot(selectedVariant, normalizedContent)
+      hasHydratedResumeRef.current = true
     },
     []
   )
 
   // Load all data
   useEffect(() => {
-    void Promise.all([getSettings(), getAllProjects(), getSkills(), getJobPostings()]).then(
-      async ([s, p, sk, jp]) => {
+    void Promise.all([getSettings(), getAllProjects(), getSkills(), getJobPostings(), getApplications()]).then(
+      async ([s, p, sk, jp, apps]) => {
         setSettings(s)
         setProjects(p)
         setSkills(sk)
         setJobPostings(jp ?? [])
+        setApplications(apps ?? [])
         await loadWorkspace(s)
       }
     )
@@ -1136,8 +1181,13 @@ export function AdminResumeEditor() {
   const activeVariant =
     resumeVariants.find((variant) => variant.id === activeVariantId) ?? resumeVariants[0] ?? null
   const selectedJobId = searchParams.get('job')?.trim() || ''
+  const selectedApplicationId = searchParams.get('application')?.trim() || ''
   const selectedJob =
     jobPostings.find((job) => job.id === selectedJobId) ?? null
+  const selectedApplication =
+    applications.find((application) => application.id === selectedApplicationId) ??
+    applications.find((application) => application.job_posting_id === selectedJobId) ??
+    null
 
   const updateSection = useCallback(<T extends ResumeSection>(type: T['type'], patch: Partial<T>) => {
     setResume(prev => {
@@ -1233,18 +1283,50 @@ export function AdminResumeEditor() {
     if (!settings) return
     const nextVariant = resumeVariants.find((variant) => variant.id === variantId)
     if (!nextVariant) return
+    const normalizedContent = normalizeResumeForSettings(nextVariant.content, settings)
 
     setActiveVariantId(variantId)
-    setResume(normalizeResumeForSettings(nextVariant.content, settings))
+    setResume(normalizedContent)
+    lastSavedVariantSnapshotRef.current = buildVariantSnapshot(nextVariant, normalizedContent)
   }, [resumeVariants, settings])
 
   const clearSelectedJobContext = useCallback(() => {
     const nextParams = new URLSearchParams(searchParams)
     nextParams.delete('job')
+    nextParams.delete('application')
     nextParams.delete('tab')
     setSearchParams(nextParams, { replace: true })
     hydratedSelectedJobKeyRef.current = null
   }, [searchParams, setSearchParams])
+
+  const syncSelectedApplication = useCallback(async (
+    savedVariantId: string,
+    patch?: Partial<Pick<ApplicationRecord, 'status' | 'cover_letter' | 'resume_variant_id'>>
+  ) => {
+    if (!selectedApplication) return null
+
+    const nextPatch: Partial<Pick<ApplicationRecord, 'status' | 'cover_letter' | 'resume_variant_id'>> = {
+      resume_variant_id: savedVariantId,
+      ...patch,
+    }
+
+    if (
+      nextPatch.resume_variant_id === selectedApplication.resume_variant_id &&
+      (nextPatch.status === undefined || nextPatch.status === selectedApplication.status) &&
+      (nextPatch.cover_letter === undefined || nextPatch.cover_letter === selectedApplication.cover_letter)
+    ) {
+      return selectedApplication
+    }
+
+    const updated = await updateApplication(selectedApplication.id, nextPatch)
+    if (updated) {
+      setApplications((current) =>
+        current.map((application) => (application.id === updated.id ? updated : application))
+      )
+    }
+
+    return updated
+  }, [selectedApplication])
 
   const applySelectedJobToCurrentVariant = useCallback(() => {
     if (!selectedJob) return
@@ -1287,19 +1369,27 @@ export function AdminResumeEditor() {
         return
       }
 
+      if (selectedApplication) {
+        await syncSelectedApplication(created.id, {
+          status: selectedApplication.status === 'saved' ? 'tailoring' : selectedApplication.status,
+        })
+      }
+
       await loadWorkspace(settings, created.id)
       hydratedSelectedJobKeyRef.current = null
       setUtilityTab('tailor')
       setShowJDPanel(true)
       setJdText(selectedJob.description || '')
-      setSaveMsg('Created a job-specific variant. Tailor it with AI next.')
+      setSaveMsg(selectedApplication
+        ? 'Created and attached a job-specific variant. Tailor it with AI next.'
+        : 'Created a job-specific variant. Tailor it with AI next.')
       setTimeout(() => setSaveMsg(null), 5000)
     } catch (error) {
       setSaveMsg(error instanceof Error ? error.message : 'Error creating the job-specific variant.')
     } finally {
       setSaving(false)
     }
-  }, [activeVariant, loadWorkspace, resume, selectedJob, settings])
+  }, [activeVariant, loadWorkspace, resume, selectedApplication, selectedJob, settings, syncSelectedApplication])
 
   const jumpToEditorSection = useCallback((sectionKey: 'header' | ResumeSectionType) => {
     if (sectionKey === 'header') {
@@ -1451,10 +1541,22 @@ export function AdminResumeEditor() {
     updateSection('experience', { items: expSection.items.filter((_, i) => i !== index) })
   }
 
-  const handleSave = async () => {
-    if (!resume || !settings) return
-    setSaving(true)
-    setSaveMsg(null)
+  const persistActiveVariant = useCallback(async (
+    options?: {
+      announce?: boolean
+      resumeOverride?: ResumeContent
+      applicationPatch?: Partial<Pick<ApplicationRecord, 'status' | 'cover_letter' | 'resume_variant_id'>>
+    }
+  ) => {
+    const announce = options?.announce ?? false
+    const contentToSave = options?.resumeOverride ?? resume
+    if (!contentToSave || !settings) return null
+
+    if (announce) {
+      setSaving(true)
+      setSaveMsg(null)
+    }
+
     try {
       const baseVariant = activeVariant ?? {
         id: 'resume-variant-new-master',
@@ -1466,7 +1568,7 @@ export function AdminResumeEditor() {
         sourceJobCompany: '',
         sourceJobUrl: '',
         notes: '',
-        content: resume,
+        content: contentToSave,
         createdAt: null,
         updatedAt: null,
         isFallback: true,
@@ -1475,18 +1577,65 @@ export function AdminResumeEditor() {
       const savedVariant = await saveResumeVariant(
         {
           ...baseVariant,
-          content: resume,
+          content: contentToSave,
         },
         { settings }
       )
-      await loadWorkspace(settings, savedVariant.id)
-      setSaveMsg(savedVariant.isFallback ? 'Saved to the legacy master resume.' : 'Saved!')
-      setTimeout(() => setSaveMsg(null), 3000)
+
+      const normalizedContent = normalizeResumeForSettings(savedVariant.content, settings)
+      lastSavedVariantSnapshotRef.current = buildVariantSnapshot(savedVariant, normalizedContent)
+      setResume(normalizedContent)
+      setResumeVariants((prev) => mergeSavedVariantList(prev, savedVariant, baseVariant.id))
+      setActiveVariantId(savedVariant.id)
+
+      if (selectedJob && selectedApplication && (!savedVariant.isPrimary || savedVariant.variantType !== 'master')) {
+        await syncSelectedApplication(savedVariant.id, options?.applicationPatch)
+      }
+
+      if (announce) {
+        setSaveMsg(savedVariant.isFallback ? 'Saved to the legacy master resume.' : 'Saved!')
+        setTimeout(() => setSaveMsg(null), 3000)
+      }
+
+      return savedVariant
     } catch (error) {
-      setSaveMsg(error instanceof Error ? error.message : 'Error saving. Please try again.')
+      const message = error instanceof Error ? error.message : 'Error saving. Please try again.'
+      setSaveMsg(message)
+      if (!announce) {
+        setAutosaveState('error')
+      }
+      throw error
     } finally {
-      setSaving(false)
+      if (announce) {
+        setSaving(false)
+      }
     }
+  }, [activeVariant, resume, selectedApplication, selectedJob, settings, syncSelectedApplication])
+
+  useEffect(() => {
+    if (!resume || !activeVariant || !hasHydratedResumeRef.current) return
+
+    const nextSnapshot = buildVariantSnapshot(activeVariant, resume)
+    if (nextSnapshot === lastSavedVariantSnapshotRef.current) return
+
+    setAutosaveState('saving')
+    const timeoutId = window.setTimeout(() => {
+      void persistActiveVariant()
+        .then((savedVariant) => {
+          if (!savedVariant) return
+          setAutosaveState('saved')
+          window.setTimeout(() => setAutosaveState((current) => (current === 'saved' ? 'idle' : current)), 1500)
+        })
+        .catch(() => {
+          setAutosaveState('error')
+        })
+    }, 900)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [activeVariant, persistActiveVariant, resume])
+
+  const handleSave = async () => {
+    await persistActiveVariant({ announce: true })
   }
 
   const handlePrint = () => {
@@ -1523,31 +1672,44 @@ export function AdminResumeEditor() {
       const expItems = expSection?.items ?? []
       const currentSummary = summSection?.text ?? ''
       const { summary, bullets } = await tailorResumeToJob(jdText, currentSummary, expItems, projects, skills)
-      if (tailorSummaryEnabled) {
-        updateSection('summary', { text: summary })
-      }
-      if (tailorBulletsEnabled) {
-        setResume(prev => {
-          if (!prev) return prev
-          return {
-            ...prev,
-            sections: prev.sections.map(s => {
-              if (s.type !== 'experience') return s
-              return {
-                ...s,
-                items: s.items.map((it, i) =>
-                  bullets[i] ? { ...it, bullets: bullets[i] } : it
-                ),
-              }
-            }),
+      const nextResume: ResumeContent = {
+        ...resume,
+        sections: resume.sections.map((section) => {
+          if (section.type === 'summary' && tailorSummaryEnabled) {
+            return {
+              ...section,
+              text: summary,
+            }
           }
-        })
+
+          if (section.type === 'experience' && tailorBulletsEnabled) {
+            return {
+              ...section,
+              items: section.items.map((item, index) =>
+                bullets[index] ? { ...item, bullets: bullets[index] } : item
+              ),
+            }
+          }
+
+          return section
+        }),
       }
+      setResume(nextResume)
+      const savedVariant = await persistActiveVariant({
+        resumeOverride: nextResume,
+        applicationPatch:
+          selectedApplication && (selectedApplication.status === 'saved' || selectedApplication.status === 'tailoring')
+            ? { status: 'ready_to_apply' }
+            : undefined,
+      })
       const tailoredParts = [
         tailorSummaryEnabled ? 'summary' : null,
         tailorBulletsEnabled ? 'bullets' : null,
       ].filter(Boolean).join(' + ')
-      setTailorMsg(`Tailored ${tailoredParts}. Review everything and fill in any [X] placeholders.`)
+      const packetMessage = selectedApplication && savedVariant
+        ? ' The application packet was updated automatically.'
+        : ''
+      setTailorMsg(`Tailored ${tailoredParts}. Review everything and fill in any [X] placeholders.${packetMessage}`)
       setTimeout(() => setTailorMsg(null), 8000)
     } catch (e) {
       setTailorMsg(e instanceof Error ? `Error: ${e.message}` : 'Tailoring failed — try again')
@@ -1609,6 +1771,20 @@ export function AdminResumeEditor() {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          {!saveMsg && autosaveState !== 'idle' && (
+            <span
+              className={cn(
+                'text-sm',
+                autosaveState === 'error' ? 'text-destructive' : 'text-muted-foreground'
+              )}
+            >
+              {autosaveState === 'saving'
+                ? 'Autosaving…'
+                : autosaveState === 'saved'
+                  ? 'Autosaved'
+                  : 'Autosave failed'}
+            </span>
+          )}
           <Button variant="outline" size="sm" onClick={() => setShowPreview(p => !p)}
             className="gap-2 glass border-white/10">
             <Eye className="h-4 w-4" />
@@ -1678,6 +1854,12 @@ export function AdminResumeEditor() {
                     <p className="mt-1 text-xs text-muted-foreground">
                       {[selectedJob.company, selectedJob.location].filter(Boolean).join(' • ') || 'Saved job'}
                     </p>
+                    {selectedApplication && (
+                      <p className="mt-2 text-[11px] text-emerald-300/80">
+                        Linked application: {selectedApplication.status.replace(/_/g, ' ')}
+                        {selectedApplication.resume_variant_id ? ' • resume packet attached' : ''}
+                      </p>
+                    )}
                     <p className="mt-2 text-[11px] text-blue-100/70">
                       The job description is loaded into the Tailor tab. Use a tailored copy if you do not want to touch the primary master.
                     </p>

@@ -1,6 +1,13 @@
-import { supabase, isSupabaseConfigured } from '@/lib/supabase'
-import { PortfolioSettings, Project, Skill } from '@/types'
-import { ExperienceItem } from '@/types/resume'
+import { invokeAdminFunction } from '@/lib/functions'
+import { isSupabaseConfigured } from '@/lib/supabase'
+import { JobPosting, PortfolioSettings, Project, Skill } from '@/types'
+import {
+  ExperienceItem,
+  ResumeExperienceSection,
+  ResumeSkillsSection,
+  ResumeSummarySection,
+  ResumeVariant,
+} from '@/types/resume'
 
 const RESUME_AI_FUNCTION = 'resume-ai'
 const RESUME_AI_NOT_READY_MESSAGE =
@@ -17,10 +24,6 @@ type ResumeAiExperienceInput = {
   title: string
   tags: string[]
   bullets: string[]
-}
-
-type ResumeAiResponse<T> = {
-  data: T
 }
 
 function normalizeProject(project: Project): ResumeAiProjectInput {
@@ -67,19 +70,16 @@ async function invokeResumeAi<T>(task: string, payload: Record<string, unknown>)
     throw new Error('Supabase is not configured for secure AI features.')
   }
 
-  const { data, error } = await supabase.functions.invoke(RESUME_AI_FUNCTION, {
-    body: { task, payload },
+  return invokeAdminFunction<T>(
+    RESUME_AI_FUNCTION,
+    { task, payload },
+    {
+      notReadyMessage: RESUME_AI_NOT_READY_MESSAGE,
+      fallbackError: 'Resume AI returned an unexpected response.',
+    }
+  ).catch((error) => {
+    throw new Error(toResumeAiErrorMessage(error instanceof Error ? error.message : undefined))
   })
-
-  if (error) {
-    throw new Error(toResumeAiErrorMessage(error.message))
-  }
-
-  if (!data || typeof data !== 'object' || !('data' in data)) {
-    throw new Error('Resume AI returned an unexpected response.')
-  }
-
-  return (data as ResumeAiResponse<T>).data
 }
 
 export async function generateResumeBullets(project: Project): Promise<string[]> {
@@ -150,3 +150,55 @@ export async function tailorResumeToJob(
   })
 }
 
+export async function generateCoverLetter(
+  job: Pick<JobPosting, 'title' | 'company' | 'location' | 'employment_type' | 'description'>,
+  variant: ResumeVariant,
+  skills: Skill[]
+): Promise<string> {
+  const summarySection = variant.content.sections.find(
+    (section): section is ResumeSummarySection => section.type === 'summary'
+  )
+  const experienceSection = variant.content.sections.find(
+    (section): section is ResumeExperienceSection => section.type === 'experience'
+  )
+  const skillsSection = variant.content.sections.find(
+    (section): section is ResumeSkillsSection => section.type === 'skills'
+  )
+
+  const selectedSkillIds =
+    skillsSection?.includedIds === 'all'
+      ? null
+      : Array.isArray(skillsSection?.includedIds)
+        ? new Set(skillsSection.includedIds)
+        : null
+
+  const skillNames = skills
+    .filter((skill) => !selectedSkillIds || selectedSkillIds.has(skill.id))
+    .map((skill) => skill.name)
+    .slice(0, 12)
+
+  const experienceEntries =
+    experienceSection?.items.slice(0, 3).map((item, index) => ({
+      index,
+      title: item.kind === 'project' ? item.titleOverride || 'Project' : item.role || 'Experience',
+      bullets: item.bullets.filter(Boolean).slice(0, 3),
+    })) ?? []
+
+  const result = await invokeResumeAi<{ text: string }>('generate_cover_letter', {
+    job: {
+      title: job.title,
+      company: job.company,
+      location: job.location,
+      employmentType: job.employment_type,
+      description: job.description,
+    },
+    candidate: {
+      name: variant.content.header.name,
+      summary: summarySection?.text ?? '',
+      skills: skillNames,
+      experience: experienceEntries,
+    },
+  })
+
+  return result.text
+}

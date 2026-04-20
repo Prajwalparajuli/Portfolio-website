@@ -86,6 +86,8 @@ export interface CandidateProfile {
 export type JobSource = 'manual' | 'greenhouse' | 'lever' | 'usajobs'
 export type JobRemoteType = 'remote' | 'hybrid' | 'onsite' | 'unknown'
 export type JobSearchSource = Exclude<JobSource, 'manual'>
+export type JobSyncSource = JobSearchSource | 'generic'
+export type JobDiscoveryStatus = 'manual' | 'discovered' | 'snapshot' | 'unsupported' | 'error'
 export type ApplicationStatus =
   | 'saved'
   | 'tailoring'
@@ -100,6 +102,7 @@ export interface JobPosting {
   id: string
   source: JobSource
   external_id: string
+  watchlist_id: string | null
   title: string
   company: string
   location: string
@@ -109,6 +112,9 @@ export interface JobPosting {
   job_url: string
   description: string
   fit_notes: string
+  discovery_status: JobDiscoveryStatus
+  source_text: string
+  embedding_updated_at: string | null
   archived_at: string | null
   created_at: string
   updated_at: string
@@ -159,4 +165,239 @@ export interface ExternalJobSearchResult {
   salary_range: string
   job_url: string
   description: string
+}
+
+export interface SavedJobSearch {
+  id: string
+  name: string
+  source: JobSearchSource
+  board_or_site: string
+  query: string
+  location: string
+  remote_only: boolean
+  result_limit: number
+  is_enabled: boolean
+  last_run_at: string | null
+  last_error: string
+  created_at: string
+  updated_at: string
+}
+
+export interface SavedJobSearchInput {
+  name: string
+  source: JobSearchSource
+  board_or_site: string
+  query: string
+  location: string
+  remote_only: boolean
+  result_limit: number
+}
+
+export type SavedJobSearchPatch = Partial<
+  SavedJobSearchInput &
+    Pick<SavedJobSearch, 'is_enabled' | 'last_run_at' | 'last_error'>
+>
+
+export type JobSyncRunMode = 'single' | 'enabled_batch'
+export type JobSyncRunStatus = 'running' | 'success' | 'error'
+
+export interface JobSyncRun {
+  id: string
+  saved_job_search_id: string | null
+  watchlist_id: string | null
+  run_mode: JobSyncRunMode
+  status: JobSyncRunStatus
+  source: JobSyncSource
+  label: string
+  board_or_site: string
+  query: string
+  location: string
+  discovery_status: string
+  discovered_source: string
+  failure_stage: string
+  result_count: number
+  imported_count: number
+  error_message: string
+  metadata: Record<string, unknown>
+  started_at: string
+  completed_at: string | null
+}
+
+export interface JobSyncRunInput {
+  saved_job_search_id: string | null
+  watchlist_id: string | null
+  run_mode: JobSyncRunMode
+  status: JobSyncRunStatus
+  source: JobSyncSource
+  label: string
+  board_or_site: string
+  query: string
+  location: string
+  discovery_status: string
+  discovered_source: string
+  failure_stage: string
+  result_count: number
+  imported_count: number
+  error_message: string
+  metadata: Record<string, unknown>
+  started_at?: string
+  completed_at: string | null
+}
+
+export interface CandidateEvidenceItem {
+  id: string
+  source_kind: 'skill' | 'project' | 'resume_summary' | 'resume_bullet' | 'custom_experience'
+  source_id: string
+  label: string
+  content: string
+  embedding_updated_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface JobMatch {
+  id: string
+  job_posting_id: string
+  best_evidence_item_id: string | null
+  semantic_score: number
+  keyword_score: number
+  preference_score: number
+  total_score: number
+  band: 'strong' | 'review' | 'low'
+  reason_summary: string
+  best_evidence_label: string
+  matched_skill_names: string[]
+  matched_project_titles: string[]
+  matched_keywords: string[]
+  missing_signals: string[]
+  evidence_item_ids: string[]
+  refreshed_at: string
+  created_at: string
+  updated_at: string
+}
+
+export interface CompanyWatchlist {
+  id: string
+  company_name: string
+  careers_url: string
+  source_hint: 'auto' | 'greenhouse' | 'lever' | 'generic'
+  board_or_site: string
+  preferred_query: string
+  location_hint: string
+  priority: 'high' | 'medium' | 'low'
+  is_enabled: boolean
+  last_discovery_at: string | null
+  last_sync_at: string | null
+  last_error: string
+  created_at: string
+  updated_at: string
+}
+
+export interface CompanyWatchlistInput {
+  company_name: string
+  careers_url: string
+  source_hint: CompanyWatchlist['source_hint']
+  board_or_site: string
+  preferred_query: string
+  location_hint: string
+  priority: CompanyWatchlist['priority']
+  is_enabled: boolean
+}
+
+export interface NotificationPreference {
+  id: string
+  profile_key: string
+  email_enabled: boolean
+  inbox_enabled: boolean
+  strong_match_enabled: boolean
+  sync_failure_enabled: boolean
+  follow_up_enabled: boolean
+  stale_application_enabled: boolean
+  weekly_digest_enabled: boolean
+  digest_hour: number
+  timezone: string
+  created_at: string
+  updated_at: string
+}
+
+export interface NotificationItem {
+  id: string
+  type: 'strong_match' | 'sync_failure' | 'follow_up_due' | 'stale_application' | 'system'
+  title: string
+  body: string
+  link_path: string
+  channel: 'inbox' | 'email' | 'both'
+  is_read: boolean
+  application_id: string | null
+  job_posting_id: string | null
+  company_watchlist_id: string | null
+  due_at: string | null
+  sent_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ApplicationShareLink {
+  id: string
+  application_id: string
+  resume_variant_id: string | null
+  title: string
+  expires_at: string
+  revoked_at: string | null
+  last_accessed_at: string | null
+  access_count: number
+  created_at: string
+  updated_at: string
+  share_url?: string
+}
+
+export interface CandidateAnswer {
+  id: string
+  prompt_key: string
+  label: string
+  category: string
+  answer: string
+  created_at: string
+  updated_at: string
+}
+
+export interface InterviewPrepNote {
+  id: string
+  application_id: string
+  generated_summary: string
+  talking_points: string[]
+  technical_focus: string[]
+  recruiter_questions: string[]
+  tell_me_about_yourself: string
+  notes: string
+  created_at: string
+  updated_at: string
+}
+
+export interface ContactTouchpoint {
+  id: string
+  application_id: string | null
+  company: string
+  contact_name: string
+  contact_role: string
+  channel: 'email' | 'linkedin' | 'phone' | 'referral' | 'other'
+  note: string
+  occurred_at: string
+  created_at: string
+  updated_at: string
+}
+
+export interface ProofOfWorkHighlight {
+  id: string
+  application_id: string | null
+  job_posting_id: string | null
+  source_kind: 'project' | 'resume_bullet' | 'custom_experience'
+  source_id: string
+  title: string
+  summary: string
+  url: string
+  relevance_reason: string
+  display_order: number
+  created_at: string
+  updated_at: string
 }

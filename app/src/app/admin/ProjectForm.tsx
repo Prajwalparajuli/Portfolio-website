@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { Project } from '@/types'
 import { Button } from '@/components/ui/button'
@@ -26,12 +26,32 @@ import { getSuggestedCoverImage } from '@/lib/coverSuggestions'
 import { ProjectDetail } from '@/components/public/ProjectDetail'
 import { isUnsplashConfigured, searchUnsplash, type UnsplashResult } from '@/lib/unsplash'
 
+const NEW_PROJECT_DRAFT_KEY = 'admin-project-form-draft-v1'
+
+type ProjectFormState = {
+  slug: string
+  title: string
+  description: string
+  cover_image: string | null
+  tags: string[]
+  github_url: string | null
+  demo_url: string | null
+  display_order: number
+  is_published: boolean
+  ask_me_about: string | null
+}
+
+type ProjectDraft = {
+  formData: ProjectFormState
+  githubImportUrl: string
+}
+
 export function AdminProjectForm() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const isEditing = !!id
 
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<ProjectFormState>({
     slug: '',
     title: '',
     description: '',
@@ -60,6 +80,10 @@ export function AdminProjectForm() {
   const [searchResults, setSearchResults] = useState<UnsplashResult[]>([])
   const [searchLoading, setSearchLoading] = useState(false)
   const [searchError, setSearchError] = useState<string | null>(null)
+  const [autoSaveMessage, setAutoSaveMessage] = useState<string | null>(null)
+  const lastSavedSnapshotRef = useRef('')
+  const hasHydratedRef = useRef(false)
+  const restoredDraftRef = useRef(false)
 
   const editor = useEditor({
     extensions: [
@@ -85,7 +109,7 @@ export function AdminProjectForm() {
       getAllProjects().then(projects => {
         const project = projects.find(p => p.id === id)
         if (project) {
-          setFormData({
+          const nextFormData = {
             slug: project.slug,
             title: project.title,
             description: project.description,
@@ -96,13 +120,60 @@ export function AdminProjectForm() {
             display_order: project.display_order,
             is_published: project.is_published,
             ask_me_about: project.ask_me_about ?? null,
+          }
+          setFormData({
+            ...nextFormData,
           })
           setPreviewImage(project.cover_image)
           editor?.commands.setContent(project.description)
+          lastSavedSnapshotRef.current = JSON.stringify(nextFormData)
+          hasHydratedRef.current = true
         }
       })
+    } else if (!restoredDraftRef.current && editor) {
+      const draft = readProjectDraft()
+      if (draft) {
+        setFormData(draft.formData)
+        setGithubImportUrl(draft.githubImportUrl)
+        setPreviewImage(draft.formData.cover_image)
+        editor.commands.setContent(draft.formData.description || '')
+      }
+      restoredDraftRef.current = true
+      hasHydratedRef.current = true
     }
   }, [id, editor])
+
+  useEffect(() => {
+    if (!hasHydratedRef.current) return
+
+    if (isEditing && id) {
+      const nextSnapshot = JSON.stringify(formData)
+      if (nextSnapshot === lastSavedSnapshotRef.current) return
+
+      setAutoSaveMessage('Autosaving…')
+      const timeoutId = window.setTimeout(async () => {
+        try {
+          await updateProject(id, formData)
+          lastSavedSnapshotRef.current = JSON.stringify(formData)
+          setAutoSaveMessage('Saved')
+          window.setTimeout(() => setAutoSaveMessage(null), 1500)
+        } catch (error) {
+          console.error('Error autosaving project:', error)
+          setAutoSaveMessage('Autosave failed')
+        }
+      }, 900)
+
+      return () => window.clearTimeout(timeoutId)
+    }
+
+    writeProjectDraft({
+      formData,
+      githubImportUrl,
+    })
+    setAutoSaveMessage('Draft saved locally')
+    const timeoutId = window.setTimeout(() => setAutoSaveMessage(null), 1200)
+    return () => window.clearTimeout(timeoutId)
+  }, [formData, githubImportUrl, id, isEditing])
 
   const getSuggestedCover = useCallback(async (tags: string[], slug: string, title: string) => {
     const searchTerm = [...tags.slice(0, 2), title].filter(Boolean).join(' ')
@@ -255,6 +326,7 @@ export function AdminProjectForm() {
           .filter(tag => !skillNames.has(tag))
           .map(tag => createSkill(tag, 'technical', defaultColor).catch(console.error))
       )
+      clearProjectDraft()
       navigate(getAdminPath('projects'))
     } catch (error) {
       console.error('Error saving project:', error)
@@ -562,6 +634,14 @@ export function AdminProjectForm() {
         </Card>
 
         <div className="flex items-center justify-end gap-4">
+          {autoSaveMessage && (
+            <p className={cn(
+              'mr-auto text-sm',
+              autoSaveMessage.includes('failed') ? 'text-destructive' : 'text-muted-foreground'
+            )}>
+              {autoSaveMessage}
+            </p>
+          )}
           <Button
             type="button"
             variant="outline"
@@ -672,4 +752,26 @@ export function AdminProjectForm() {
       )}
     </div>
   )
+}
+
+function readProjectDraft(): ProjectDraft | null {
+  if (typeof window === 'undefined') return null
+
+  try {
+    const raw = window.localStorage.getItem(NEW_PROJECT_DRAFT_KEY)
+    if (!raw) return null
+    return JSON.parse(raw) as ProjectDraft
+  } catch {
+    return null
+  }
+}
+
+function writeProjectDraft(value: ProjectDraft) {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(NEW_PROJECT_DRAFT_KEY, JSON.stringify(value))
+}
+
+function clearProjectDraft() {
+  if (typeof window === 'undefined') return
+  window.localStorage.removeItem(NEW_PROJECT_DRAFT_KEY)
 }

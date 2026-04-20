@@ -27,6 +27,8 @@ Thumbs.db
 npm-debug.log*
 .npm
 .cache/
+output/
+.playwright-cli/
 
 # TypeScript
 *.tsbuildinfo

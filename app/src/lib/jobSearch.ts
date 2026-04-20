@@ -1,13 +1,10 @@
-import { supabase, isSupabaseConfigured } from '@/lib/supabase'
+import { invokeAdminFunction } from '@/lib/functions'
+import { isSupabaseConfigured } from '@/lib/supabase'
 import { ExternalJobSearchRequest, ExternalJobSearchResult } from '@/types'
 
 const JOB_SEARCH_FUNCTION = 'job-search'
 const JOB_SEARCH_NOT_READY_MESSAGE =
   'Connector search is not ready yet. Deploy the Supabase Edge Function "job-search". USAJobs also requires USAJOBS_API_KEY and USAJOBS_USER_AGENT in Supabase secrets.'
-
-type JobSearchResponse<T> = {
-  data: T
-}
 
 function toJobSearchErrorMessage(message?: string): string {
   const text = message?.trim() || 'Job search request failed.'
@@ -18,7 +15,6 @@ function toJobSearchErrorMessage(message?: string): string {
 
   return text
 }
-
 export async function searchExternalJobs(
   request: ExternalJobSearchRequest
 ): Promise<ExternalJobSearchResult[]> {
@@ -26,17 +22,16 @@ export async function searchExternalJobs(
     throw new Error('Supabase is not configured for connector search.')
   }
 
-  const { data, error } = await supabase.functions.invoke(JOB_SEARCH_FUNCTION, {
-    body: request,
+  const data = await invokeAdminFunction<{ results: ExternalJobSearchResult[] }>(
+    JOB_SEARCH_FUNCTION,
+    request,
+    {
+      notReadyMessage: JOB_SEARCH_NOT_READY_MESSAGE,
+      fallbackError: 'Job search returned an unexpected response.',
+    }
+  ).catch((error) => {
+    throw new Error(toJobSearchErrorMessage(error instanceof Error ? error.message : undefined))
   })
 
-  if (error) {
-    throw new Error(toJobSearchErrorMessage(error.message))
-  }
-
-  if (!data || typeof data !== 'object' || !('data' in data)) {
-    throw new Error('Job search returned an unexpected response.')
-  }
-
-  return (data as JobSearchResponse<{ results: ExternalJobSearchResult[] }>).data.results
+  return Array.isArray(data.results) ? data.results : []
 }

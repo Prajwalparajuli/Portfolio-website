@@ -1,7 +1,6 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
 import { User } from '@supabase/supabase-js'
-import { supabase, getCurrentUser } from '@/lib/supabase'
-import { isAllowedAdminEmail } from '@/lib/adminConfig'
+import { supabase, getCurrentUser, isCurrentUserAdmin } from '@/lib/supabase'
 
 interface AuthContextType {
   user: User | null
@@ -16,16 +15,34 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(true)
-  const isAdmin = isAllowedAdminEmail(user?.email)
+  const [isAdmin, setIsAdmin] = useState(false)
 
   useEffect(() => {
-    getCurrentUser()
-      .then((user) => {
-        setUser(user)
+    async function refreshAuthState(nextUser?: User | null) {
+      setIsLoading(true)
+      const resolvedUser = nextUser ?? await getCurrentUser()
+      setUser(resolvedUser)
+      if (!resolvedUser) {
+        setIsAdmin(false)
         setIsLoading(false)
-      })
+        return
+      }
+
+      try {
+        setIsAdmin(false)
+        setIsAdmin(await isCurrentUserAdmin())
+      } catch {
+        setIsAdmin(false)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    getCurrentUser()
+      .then((nextUser) => refreshAuthState(nextUser))
       .catch(() => {
         setUser(null)
+        setIsAdmin(false)
         setIsLoading(false)
       })
 
@@ -33,8 +50,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const { data: { subscription: sub } } = supabase.auth.onAuthStateChange(
         (_event, session) => {
-          setUser(session?.user ?? null)
-          setIsLoading(false)
+          void refreshAuthState(session?.user ?? null)
         }
       )
       subscription = sub

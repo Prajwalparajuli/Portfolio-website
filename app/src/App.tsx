@@ -4,13 +4,16 @@ import { AdminLayout } from './app/AdminLayout'
 import { HomePage } from './app/pages/HomePage'
 import { ProjectPage } from './app/pages/ProjectPage'
 import { StatsPage } from './app/pages/StatsPage'
+import { RecruiterPacketPage } from './app/pages/RecruiterPacketPage'
 import { AuthProvider } from './components/auth/AuthProvider'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { getAdminPath } from './lib/adminConfig'
 import {
   AdminActivityRoute,
+  AdminAnswerBankRoute,
   AdminApplicationsRoute,
   AdminDashboardRoute,
+  AdminInboxRoute,
   AdminJobsRoute,
   AdminProjectFormRoute,
   AdminProjectsRoute,
@@ -18,6 +21,7 @@ import {
   AdminResumePrintViewRoute,
   AdminSettingsRoute,
   AdminSkillsRoute,
+  AdminWatchlistsRoute,
 } from './app/admin/routes'
 import './App.css'
 
@@ -33,6 +37,7 @@ function App() {
             <Route index element={<HomePage />} />
             <Route path="projects/:slug" element={<ProjectPage />} />
             <Route path="stats" element={<StatsPage />} />
+            <Route path="packet/:token" element={<RecruiterPacketPage />} />
           </Route>
 
           {/* Admin Routes - path from VITE_ADMIN_PATH (default: /admin) */}
@@ -45,7 +50,10 @@ function App() {
             <Route path="settings" element={<AdminSettingsRoute />} />
             <Route path="activity" element={<AdminActivityRoute />} />
             <Route path="jobs" element={<AdminJobsRoute />} />
+            <Route path="watchlists" element={<AdminWatchlistsRoute />} />
             <Route path="applications" element={<AdminApplicationsRoute />} />
+            <Route path="answers" element={<AdminAnswerBankRoute />} />
+            <Route path="inbox" element={<AdminInboxRoute />} />
             <Route path="resume/print" element={<AdminResumePrintViewRoute />} />
             <Route path="resume" element={<AdminResumeEditorRoute />} />
           </Route>

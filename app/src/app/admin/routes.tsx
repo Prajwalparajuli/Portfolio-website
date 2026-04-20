@@ -30,6 +30,15 @@ const loadAdminJobs = () =>
 const loadAdminApplications = () =>
   import('./Applications').then((module) => ({ default: module.AdminApplications }))
 
+const loadAdminInbox = () =>
+  import('./Inbox').then((module) => ({ default: module.AdminInbox }))
+
+const loadAdminAnswerBank = () =>
+  import('./AnswerBank').then((module) => ({ default: module.AdminAnswerBank }))
+
+const loadAdminWatchlists = () =>
+  import('./Watchlists').then((module) => ({ default: module.AdminWatchlists }))
+
 export const AdminDashboardRoute = lazy(loadAdminDashboard)
 export const AdminProjectsRoute = lazy(loadAdminProjects)
 export const AdminProjectFormRoute = lazy(loadAdminProjectForm)
@@ -40,6 +49,9 @@ export const AdminResumeEditorRoute = lazy(loadAdminResumeEditor)
 export const AdminResumePrintViewRoute = lazy(loadAdminResumePrintView)
 export const AdminJobsRoute = lazy(loadAdminJobs)
 export const AdminApplicationsRoute = lazy(loadAdminApplications)
+export const AdminInboxRoute = lazy(loadAdminInbox)
+export const AdminAnswerBankRoute = lazy(loadAdminAnswerBank)
+export const AdminWatchlistsRoute = lazy(loadAdminWatchlists)
 
 export function preloadAdminRoutes() {
   return Promise.allSettled([
@@ -53,5 +65,8 @@ export function preloadAdminRoutes() {
     loadAdminResumePrintView(),
     loadAdminJobs(),
     loadAdminApplications(),
+    loadAdminInbox(),
+    loadAdminAnswerBank(),
+    loadAdminWatchlists(),
   ])
 }
