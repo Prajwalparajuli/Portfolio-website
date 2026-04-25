@@ -21,6 +21,7 @@ import {
 import { getAdminPath } from '@/lib/adminConfig'
 import { cn, generateSlug } from '@/lib/utils'
 import { fetchProjectFromGitHubUrl, type GitHubImportSummary } from '@/lib/github'
+import { invokeAdminFunction } from '@/lib/functions'
 import { getSuggestedCoverImage } from '@/lib/coverSuggestions'
 import { ProjectDetail } from '@/components/public/ProjectDetail'
 import { isUnsplashConfigured, searchUnsplash, type UnsplashResult } from '@/lib/unsplash'
@@ -82,6 +83,7 @@ export function AdminProjectForm() {
   const [searchLoading, setSearchLoading] = useState(false)
   const [searchError, setSearchError] = useState<string | null>(null)
   const [autoSaveMessage, setAutoSaveMessage] = useState<string | null>(null)
+  const [smartNarrative, setSmartNarrative] = useState<Record<string, unknown> | null>(null)
   const lastSavedSnapshotRef = useRef('')
   const hasHydratedRef = useRef(false)
   const restoredDraftRef = useRef(false)
@@ -259,10 +261,33 @@ export function AdminProjectForm() {
       setPreviewImage(suggestedCover)
       setPendingCoverFile(null)
       setGithubImportUrl('')
+
+      // Fire LLM-enhanced description in the background (non-blocking)
+      if (data.github_url) {
+        generateSmartNarrative(data.github_url)
+      }
     } catch (err) {
       setImportError(err instanceof Error ? err.message : 'Failed to fetch repo')
     } finally {
       setIsImporting(false)
+    }
+  }
+
+  /** Call the project-describe edge function to generate a structured narrative via Gemini */
+  const generateSmartNarrative = async (githubUrl: string) => {
+    try {
+      const res = await invokeAdminFunction<{ hook: string; problem: string; approach: string; results: string[]; learned: string[]; summary: string }>(
+        'project-describe',
+        { github_url: githubUrl },
+        { notReadyMessage: 'project-describe edge function not deployed yet. Deploy it to enable AI descriptions.' }
+      )
+      // Store the narrative — it'll be saved when the user creates/updates the project
+      setSmartNarrative(res)
+      setAutoSaveMessage('✨ AI description generated')
+      setTimeout(() => setAutoSaveMessage(null), 3000)
+    } catch (err) {
+      console.warn('Smart narrative generation skipped:', err instanceof Error ? err.message : err)
+      // Non-fatal — the basic description still works
     }
   }
 
@@ -333,6 +358,17 @@ export function AdminProjectForm() {
           await updateProject(savedProjectId, { cover_image: uploadedCoverUrl })
         }
       }
+
+      // Save LLM-generated narrative if available
+      if (smartNarrative && savedProjectId) {
+        try {
+          await updateProject(savedProjectId, { structured_narrative: smartNarrative } as Partial<typeof formData>)
+        } catch (err) {
+          console.warn('Failed to save structured narrative:', err)
+          // Non-fatal — column may not exist yet
+        }
+      }
+
       clearProjectDraft()
       navigate(getAdminPath('projects'))
     } catch (error) {
