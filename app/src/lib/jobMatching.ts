@@ -166,6 +166,21 @@ const OFF_TARGET_BUSINESS_TITLE_PHRASES = [
   'success manager',
 ]
 
+const STRONG_OFF_TARGET_GTM_TITLE_PHRASES = [
+  'account executive',
+  'account manager',
+  'business development',
+  'sales development representative',
+  'business development representative',
+  'sales representative',
+  'inside sales',
+  'outside sales',
+  'territory manager',
+  'client success manager',
+  'customer success manager',
+  'client partner',
+]
+
 const OFF_TARGET_LEADERSHIP_TITLE_PHRASES = [
   'engineering manager',
   'manager engineering',
@@ -200,6 +215,28 @@ const OFF_TARGET_BUSINESS_TEXT_PHRASES = [
   'sales quota',
   'pipeline generation',
   'demand generation',
+]
+
+const STRONG_OFF_TARGET_GTM_TEXT_PHRASES = [
+  'quota attainment',
+  'quota carrying',
+  'quota-carrying',
+  'pipeline management',
+  'sales pipeline',
+  'sales cycle',
+  'prospecting',
+  'outbound prospecting',
+  'lead generation',
+  'lead qualification',
+  'closing deals',
+  'close deals',
+  'go to market',
+  'go-to-market',
+  'new logo',
+  'book of business',
+  'territory planning',
+  'territory management',
+  'revenue growth',
 ]
 
 const CLINICAL_TITLE_PHRASES = [
@@ -546,18 +583,32 @@ function computeOffTargetDomainPenalty(jobTitle: string, jobText: string): numbe
   const targetTextHits = countPhraseMatches(jobText, DESCRIPTION_SIGNAL_PHRASES)
   const icSignalHits = countPhraseMatches(jobText, INDIVIDUAL_CONTRIBUTOR_SIGNAL_PHRASES)
   const offTargetBusinessTitleHits = countPhraseMatches(jobTitle, OFF_TARGET_BUSINESS_TITLE_PHRASES)
+  const strongOffTargetGtmTitleHits = countPhraseMatches(jobTitle, STRONG_OFF_TARGET_GTM_TITLE_PHRASES)
   const offTargetLeadershipTitleHits = countPhraseMatches(jobTitle, OFF_TARGET_LEADERSHIP_TITLE_PHRASES)
   const offTargetEngineeringTitleHits = countPhraseMatches(jobTitle, OFF_TARGET_ENGINEERING_TITLE_PHRASES)
   const catchallTitleHits = countPhraseMatches(jobTitle, GENERIC_CATCHALL_TITLE_PHRASES)
   const offTargetBusinessTextHits = countPhraseMatches(jobText, OFF_TARGET_BUSINESS_TEXT_PHRASES)
+  const strongOffTargetGtmTextHits = countPhraseMatches(jobText, STRONG_OFF_TARGET_GTM_TEXT_PHRASES)
   const clinicalTitleHits = countPhraseMatches(jobTitle, CLINICAL_TITLE_PHRASES)
   const clinicalTextHits = countPhraseMatches(jobText, CLINICAL_TEXT_PHRASES)
 
   let penalty = 0
 
+  if (strongOffTargetGtmTitleHits > 0 && targetTextHits <= 2) {
+    penalty += 18
+  } else if (strongOffTargetGtmTitleHits > 0 && targetTextHits <= 4) {
+    penalty += 10
+  }
+
   if (offTargetBusinessTitleHits > 0 && targetTextHits <= 1) {
     penalty += 14
   } else if (offTargetBusinessTitleHits > 0 && targetTextHits <= 2) {
+    penalty += 6
+  }
+
+  if (strongOffTargetGtmTextHits >= 2 && targetTextHits <= 2) {
+    penalty += 10
+  } else if (strongOffTargetGtmTextHits > 0 && targetTextHits === 0) {
     penalty += 6
   }
 

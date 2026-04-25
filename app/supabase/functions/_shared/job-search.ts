@@ -1,5 +1,18 @@
-export type SearchSource = 'greenhouse' | 'lever' | 'usajobs'
+export type SearchSource =
+  | 'greenhouse'
+  | 'lever'
+  | 'usajobs'
+  | 'workday'
+  | 'ashby'
+  | 'smartrecruiters'
+  | 'icims'
+  | 'workable'
+  | 'jobvite'
+  | 'adzuna'
+  | 'google_jobs'
 export type RemoteType = 'remote' | 'hybrid' | 'onsite' | 'unknown'
+type ConnectorSource = Exclude<SearchSource, 'usajobs' | 'adzuna' | 'google_jobs'>
+type WatchlistSourceHint = ConnectorSource | 'generic'
 
 export type SearchRequest = {
   source: SearchSource
@@ -25,10 +38,43 @@ export type SearchResult = {
 }
 
 export type WatchlistDiscovery = {
-  sourceHint: 'greenhouse' | 'lever' | 'generic'
+  sourceHint: WatchlistSourceHint
   boardOrSite: string
   snapshotJobs: Array<{ title: string; url: string; location: string }>
   notes: string
+}
+
+const CONNECTOR_SOURCES = [
+  'greenhouse',
+  'lever',
+  'workday',
+  'ashby',
+  'smartrecruiters',
+  'icims',
+  'workable',
+  'jobvite',
+] as const satisfies readonly ConnectorSource[]
+
+const SEARCH_SOURCES = [...CONNECTOR_SOURCES, 'usajobs', 'adzuna', 'google_jobs'] as const satisfies readonly SearchSource[]
+const DEFAULT_FETCH_TIMEOUT_MS = 12000
+
+async function fetchWithTimeout(input: string | URL | Request, init: RequestInit = {}, timeoutMs = DEFAULT_FETCH_TIMEOUT_MS) {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), timeoutMs)
+
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: init.signal ?? controller.signal,
+    })
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new Error(`Job source request timed out after ${timeoutMs / 1000}s.`)
+    }
+    throw error
+  } finally {
+    clearTimeout(timeout)
+  }
 }
 
 const TECHNICAL_QUERY_TERMS = [
@@ -130,6 +176,21 @@ const OFF_TARGET_TITLE_PHRASES = [
   'success manager',
   'talent',
   'tax',
+]
+
+const STRONG_OFF_TARGET_GTM_TITLE_PHRASES = [
+  'account executive',
+  'account manager',
+  'business development',
+  'sales development representative',
+  'business development representative',
+  'sales representative',
+  'inside sales',
+  'outside sales',
+  'territory manager',
+  'client success manager',
+  'customer success manager',
+  'client partner',
 ]
 
 const GENERIC_CATCHALL_TITLE_PHRASES = [
@@ -245,6 +306,28 @@ const OFF_TARGET_DOMAIN_TEXT_PHRASES = [
   'tax return',
 ]
 
+const STRONG_OFF_TARGET_GTM_TEXT_PHRASES = [
+  'quota attainment',
+  'quota carrying',
+  'quota-carrying',
+  'pipeline management',
+  'sales pipeline',
+  'sales cycle',
+  'prospecting',
+  'outbound prospecting',
+  'lead generation',
+  'lead qualification',
+  'closing deals',
+  'close deals',
+  'go to market',
+  'go-to-market',
+  'new logo',
+  'book of business',
+  'territory planning',
+  'territory management',
+  'revenue growth',
+]
+
 const OFF_TARGET_LEADERSHIP_TITLE_PHRASES = [
   'engineering manager',
   'manager engineering',
@@ -256,6 +339,14 @@ const OFF_TARGET_LEADERSHIP_TITLE_PHRASES = [
   'operations manager',
 ]
 
+function isSearchSource(value: unknown): value is SearchSource {
+  return typeof value === 'string' && SEARCH_SOURCES.includes(value as SearchSource)
+}
+
+function requiresBoardInput(source: SearchSource) {
+  return source !== 'usajobs' && source !== 'adzuna' && source !== 'google_jobs'
+}
+
 export function parseRequest(body: unknown): Required<SearchRequest> {
   if (!body || typeof body !== 'object') {
     throw new Error('Invalid request body.')
@@ -263,7 +354,7 @@ export function parseRequest(body: unknown): Required<SearchRequest> {
 
   const payload = body as Record<string, unknown>
   const source = payload.source
-  if (source !== 'greenhouse' && source !== 'lever' && source !== 'usajobs') {
+  if (!isSearchSource(source)) {
     throw new Error('Unsupported search source.')
   }
 
@@ -272,16 +363,16 @@ export function parseRequest(body: unknown): Required<SearchRequest> {
   const boardOrSite = typeof payload.boardOrSite === 'string' ? payload.boardOrSite.trim() : ''
   const remoteOnly = payload.remoteOnly === true
   const requestedLimit = typeof payload.limit === 'number' ? payload.limit : 20
-  const limit = source === 'usajobs'
+  const limit = source === 'usajobs' || source === 'google_jobs'
     ? Math.max(1, Math.min(200, requestedLimit))
     : Math.max(1, Math.min(50, requestedLimit))
 
-  if ((source === 'greenhouse' || source === 'lever') && !boardOrSite) {
-    throw new Error('Board token or site name is required for this source.')
+  if (requiresBoardInput(source) && !boardOrSite) {
+    throw new Error('A board token, site name, or careers URL is required for this source.')
   }
 
-  if (source === 'usajobs' && !query && !location) {
-    throw new Error('USAJobs search requires at least a keyword or location.')
+  if ((source === 'usajobs' || source === 'adzuna' || source === 'google_jobs') && !query && !location) {
+    throw new Error('This search requires at least a keyword or location.')
   }
 
   return {
@@ -300,14 +391,30 @@ export async function handleSearch(request: Required<SearchRequest>): Promise<Se
       return searchGreenhouse(request)
     case 'lever':
       return searchLever(request)
+    case 'workday':
+      return searchWorkday(request)
+    case 'ashby':
+      return searchAshby(request)
+    case 'smartrecruiters':
+      return searchSmartRecruiters(request)
+    case 'icims':
+      return searchIcims(request)
+    case 'workable':
+      return searchWorkable(request)
+    case 'jobvite':
+      return searchJobvite(request)
     case 'usajobs':
       return searchUsaJobs(request)
+    case 'adzuna':
+      return searchAdzuna(request)
+    case 'google_jobs':
+      return searchGoogleJobs(request)
   }
 }
 
 export async function discoverCareerSource(careersUrl: string): Promise<WatchlistDiscovery> {
   const normalizedUrl = careersUrl.startsWith('http') ? careersUrl : `https://${careersUrl}`
-  const response = await fetch(normalizedUrl, {
+  const response = await fetchWithTimeout(normalizedUrl, {
     headers: {
       'User-Agent': 'Mozilla/5.0 (compatible; CareerCockpitBot/1.0)',
     },
@@ -319,25 +426,125 @@ export async function discoverCareerSource(careersUrl: string): Promise<Watchlis
 
   const html = await response.text()
   const lower = html.toLowerCase()
-  const greenhouse = html.match(/boards\.greenhouse\.io\/([a-z0-9_-]+)/i)
-    ?? html.match(/boards-api\.greenhouse\.io\/v1\/boards\/([a-z0-9_-]+)/i)
-  if (greenhouse?.[1]) {
+  const greenhouse = extractGreenhouseBoardToken(
+    findFirstUrlMatch([normalizedUrl, html], [
+      /https?:\/\/boards(?:-api)?\.greenhouse\.io\/(?:v1\/boards\/)?[a-z0-9_-]+/i,
+      /boards(?:-api)?\.greenhouse\.io\/(?:v1\/boards\/)?[a-z0-9_-]+/i,
+    ])
+  )
+  if (greenhouse) {
     return {
       sourceHint: 'greenhouse',
-      boardOrSite: greenhouse[1],
+      boardOrSite: greenhouse,
       snapshotJobs: [],
       notes: 'Detected Greenhouse board on the careers page.',
     }
   }
 
-  const lever = html.match(/jobs\.lever\.co\/([a-z0-9_-]+)/i)
-    ?? html.match(/api\.lever\.co\/v0\/postings\/([a-z0-9_-]+)/i)
-  if (lever?.[1]) {
+  const lever = extractLeverSite(
+    findFirstUrlMatch([normalizedUrl, html], [
+      /https?:\/\/(?:jobs|api)\.lever\.co\/(?:v0\/postings\/)?[a-z0-9_-]+/i,
+      /(?:jobs|api)\.lever\.co\/(?:v0\/postings\/)?[a-z0-9_-]+/i,
+    ])
+  )
+  if (lever) {
     return {
       sourceHint: 'lever',
-      boardOrSite: lever[1],
+      boardOrSite: lever,
       snapshotJobs: [],
       notes: 'Detected Lever site on the careers page.',
+    }
+  }
+
+  const workday = extractWorkdayBoardUrl(
+    findFirstUrlMatch([normalizedUrl, html], [
+      /https?:\/\/[^\s"'<>]+(?:myworkdayjobs\.com|myworkdaysite\.com)[^\s"'<>]*/i,
+      /https?:\/\/[^\s"'<>]+\/wday\/cxs\/[^\s"'<>]+/i,
+    ]) || normalizedUrl
+  )
+  if (workday) {
+    return {
+      sourceHint: 'workday',
+      boardOrSite: workday,
+      snapshotJobs: [],
+      notes: 'Detected Workday board on the careers page.',
+    }
+  }
+
+  const ashby = extractAshbyBoardName(
+    findFirstUrlMatch([normalizedUrl, html], [
+      /https?:\/\/jobs\.ashbyhq\.com\/[a-z0-9_-]+/i,
+      /https?:\/\/api\.ashbyhq\.com\/posting-api\/job-board\/[a-z0-9_-]+/i,
+      /(?:jobs\.ashbyhq\.com|posting-api\/job-board\/)[a-z0-9_-]+/i,
+    ])
+  )
+  if (ashby) {
+    return {
+      sourceHint: 'ashby',
+      boardOrSite: ashby,
+      snapshotJobs: [],
+      notes: 'Detected Ashby job board on the careers page.',
+    }
+  }
+
+  const smartRecruiters = extractSmartRecruitersCompany(
+    findFirstUrlMatch([normalizedUrl, html], [
+      /https?:\/\/(?:careers|jobs)\.smartrecruiters\.com\/[a-z0-9_-]+/i,
+      /https?:\/\/api\.smartrecruiters\.com\/v1\/companies\/[a-z0-9_-]+\/postings/i,
+      /(?:careers|jobs)\.smartrecruiters\.com\/[a-z0-9_-]+/i,
+    ])
+  )
+  if (smartRecruiters) {
+    return {
+      sourceHint: 'smartrecruiters',
+      boardOrSite: smartRecruiters,
+      snapshotJobs: [],
+      notes: 'Detected SmartRecruiters company feed on the careers page.',
+    }
+  }
+
+  const workable = extractWorkableSubdomain(
+    findFirstUrlMatch([normalizedUrl, html], [
+      /https?:\/\/apply\.workable\.com\/[a-z0-9_-]+/i,
+      /https?:\/\/www\.workable\.com\/api\/accounts\/[a-z0-9_-]+/i,
+      /(?:apply\.workable\.com|api\/accounts)\/[a-z0-9_-]+/i,
+    ])
+  )
+  if (workable) {
+    return {
+      sourceHint: 'workable',
+      boardOrSite: workable,
+      snapshotJobs: [],
+      notes: 'Detected Workable public jobs feed on the careers page.',
+    }
+  }
+
+  const jobvite = extractJobviteCompany(
+    findFirstUrlMatch([normalizedUrl, html], [
+      /https?:\/\/jobs\.jobvite\.com\/[a-z0-9_-]+[^\s"'<>]*/i,
+      /jobs\.jobvite\.com\/[a-z0-9_-]+[^\s"'<>]*/i,
+    ])
+  )
+  if (jobvite) {
+    return {
+      sourceHint: 'jobvite',
+      boardOrSite: jobvite,
+      snapshotJobs: [],
+      notes: 'Detected Jobvite board on the careers page.',
+    }
+  }
+
+  const icimsCandidate = findFirstUrlMatch([html, normalizedUrl], [
+    /https?:\/\/[^\s"'<>]*icims[^\s"'<>]*/i,
+    /https?:\/\/[^\s"'<>]+\/jobs\/search[^\s"'<>]*ss=1[^\s"'<>]*/i,
+  ]) || (lower.includes('icims') ? normalizedUrl : '')
+  const icims = extractIcimsBoardUrl(icimsCandidate)
+  if (icims) {
+    return {
+      sourceHint: 'icims',
+      boardOrSite: icims,
+      snapshotJobs: [],
+      notes: 'Detected iCIMS careers page.',
     }
   }
 
@@ -346,7 +553,7 @@ export async function discoverCareerSource(careersUrl: string): Promise<Watchlis
     sourceHint: 'generic',
     boardOrSite: '',
     snapshotJobs,
-    notes: lower.includes('greenhouse') || lower.includes('lever')
+    notes: containsAnySupportedAtsTerm(lower)
       ? 'Career page referenced known ATS terms, but a stable board/site token was not detected.'
       : 'No supported ATS board was detected. Stored a generic careers-page snapshot instead.',
   }
@@ -359,8 +566,8 @@ async function searchGreenhouse(request: Required<SearchRequest>): Promise<Searc
   }
 
   const [boardRes, jobsRes] = await Promise.all([
-    fetch(`https://boards-api.greenhouse.io/v1/boards/${boardToken}`),
-    fetch(`https://boards-api.greenhouse.io/v1/boards/${boardToken}/jobs?content=true`),
+    fetchWithTimeout(`https://boards-api.greenhouse.io/v1/boards/${boardToken}`),
+    fetchWithTimeout(`https://boards-api.greenhouse.io/v1/boards/${boardToken}/jobs?content=true`),
   ])
 
   if (!jobsRes.ok) {
@@ -402,7 +609,7 @@ async function searchLever(request: Required<SearchRequest>): Promise<SearchResu
 
   const params = new URLSearchParams({ mode: 'json' })
   if (request.location) params.set('location', request.location)
-  const response = await fetch(`https://api.lever.co/v0/postings/${site}?${params.toString()}`)
+  const response = await fetchWithTimeout(`https://api.lever.co/v0/postings/${site}?${params.toString()}`)
 
   if (!response.ok) {
     throw new Error(`Lever search failed with status ${response.status}.`)
@@ -440,6 +647,307 @@ async function searchLever(request: Required<SearchRequest>): Promise<SearchResu
   return rankAndLimit(normalized, request)
 }
 
+async function searchWorkday(request: Required<SearchRequest>): Promise<SearchResult[]> {
+  const board = extractWorkdayBoardDescriptor(request.boardOrSite)
+  if (!board) {
+    throw new Error('Could not determine the Workday board URL.')
+  }
+
+  const pageSize = Math.min(20, Math.max(request.limit, 10))
+  const maxItems = Math.max(request.limit * 3, 60)
+  const collected: Array<Record<string, unknown>> = []
+
+  for (let offset = 0; offset < maxItems; offset += pageSize) {
+    const response = await fetchWithTimeout(`${board.apiBaseUrl}/jobs`, {
+      method: 'POST',
+      headers: buildJsonHeaders(board.origin),
+      body: JSON.stringify({
+        appliedFacets: {},
+        limit: pageSize,
+        offset,
+        searchText: request.query,
+      }),
+    })
+
+    if (!response.ok) {
+      throw new Error(`Workday search failed with status ${response.status}.`)
+    }
+
+    const payload = (await response.json()) as {
+      total?: number
+      jobPostings?: Array<Record<string, unknown>>
+    }
+    const postings = Array.isArray(payload.jobPostings) ? payload.jobPostings : []
+    collected.push(...postings)
+
+    const total = typeof payload.total === 'number' ? payload.total : null
+    if (postings.length < pageSize || (total !== null && collected.length >= total)) {
+      break
+    }
+  }
+
+  const normalized = collected.map((posting) => {
+    const title = asString(posting.title)
+    const externalPath = asString(posting.externalPath)
+    const bulletFields = Array.isArray(posting.bulletFields) ? posting.bulletFields : []
+    const location = asString(posting.locationsText)
+    const postedOn = asString(posting.postedOn)
+
+    return {
+      source: 'workday' as const,
+      external_id: firstString(bulletFields) || externalPath || title,
+      source_label: `Workday / ${board.label}`,
+      title,
+      company: board.company,
+      location,
+      remote_type: guessRemoteType([location, postedOn, title]),
+      employment_type: inferEmploymentType([title, ...bulletFields.map((value) => asString(value))]),
+      salary_range: '',
+      job_url: resolveMaybeRelativeUrl(board.browseUrl, externalPath),
+      description: '',
+    }
+  })
+
+  return enrichResultsFromJobPages(rankAndLimit(normalized, request))
+}
+
+async function searchAshby(request: Required<SearchRequest>): Promise<SearchResult[]> {
+  const boardName = extractAshbyBoardName(request.boardOrSite)
+  if (!boardName) {
+    throw new Error('Could not determine the Ashby job board name.')
+  }
+
+  const response = await fetchWithTimeout(`https://api.ashbyhq.com/posting-api/job-board/${boardName}?includeCompensation=true`)
+  if (!response.ok) {
+    throw new Error(`Ashby search failed with status ${response.status}.`)
+  }
+
+  const payload = (await response.json()) as {
+    jobs?: Array<Record<string, unknown>>
+  }
+
+  const normalized = (payload.jobs ?? [])
+    .filter((job) => job.isListed !== false)
+    .map((job) => {
+      const title = asString(job.title)
+      const description = summarizeDescription(asString(job.descriptionPlain) || asString(job.descriptionHtml))
+      const location = formatAshbyLocation(job)
+      const salaryRange = formatAshbyCompensation(asObject(job.compensation))
+
+      return {
+        source: 'ashby' as const,
+        external_id: asString(job.id) || asString(job.jobId) || asString(job.jobUrl) || title,
+        source_label: `Ashby / ${boardName}`,
+        title,
+        company: deriveAshbyCompany(job, boardName),
+        location,
+        remote_type: mapAshbyRemoteType(job, location, description),
+        employment_type: humanizeEnum(asString(job.employmentType)) || inferEmploymentType([title, description]),
+        salary_range: salaryRange,
+        job_url: asString(job.jobUrl) || asString(job.applyUrl),
+        description,
+      }
+    })
+
+  return rankAndLimit(normalized, request)
+}
+
+async function searchSmartRecruiters(request: Required<SearchRequest>): Promise<SearchResult[]> {
+  const companyIdentifier = extractSmartRecruitersCompany(request.boardOrSite)
+  if (!companyIdentifier) {
+    throw new Error('Could not determine the SmartRecruiters company identifier.')
+  }
+
+  const pageSize = Math.min(100, Math.max(request.limit * 2, 25))
+  const maxItems = Math.max(request.limit * 3, 60)
+  const collected: Array<Record<string, unknown>> = []
+
+  for (let offset = 0; offset < maxItems; offset += pageSize) {
+    const params = new URLSearchParams({
+      limit: String(pageSize),
+      offset: String(offset),
+    })
+    if (request.query) params.set('q', request.query)
+
+    const response = await fetchWithTimeout(`https://api.smartrecruiters.com/v1/companies/${companyIdentifier}/postings?${params.toString()}`)
+    if (!response.ok) {
+      throw new Error(`SmartRecruiters search failed with status ${response.status}.`)
+    }
+
+    const payload = (await response.json()) as {
+      totalFound?: number
+      content?: Array<Record<string, unknown>>
+    }
+    const postings = Array.isArray(payload.content) ? payload.content : []
+    collected.push(...postings)
+
+    const totalFound = typeof payload.totalFound === 'number' ? payload.totalFound : null
+    if (postings.length < pageSize || (totalFound !== null && collected.length >= totalFound)) {
+      break
+    }
+  }
+
+  const normalized = collected.map((posting) => {
+    const location = formatSmartRecruitersLocation(asObject(posting.location))
+    const company = asString(asObject(posting.company)?.name) || humanizeToken(companyIdentifier)
+
+    return {
+      source: 'smartrecruiters' as const,
+      external_id: asString(posting.id) || asString(posting.uuid) || asString(posting.ref),
+      source_label: `SmartRecruiters / ${companyIdentifier}`,
+      title: asString(posting.name),
+      company,
+      location,
+      remote_type: asObject(posting.location)?.remote === true ? 'remote' : guessRemoteType([location]),
+      employment_type: asString(asObject(posting.typeOfEmployment)?.label),
+      salary_range: '',
+      job_url: asString(posting.ref),
+      description: summarizeDescription([
+        asString(asObject(posting.department)?.label),
+        asString(asObject(posting.function)?.label),
+        asString(asObject(posting.experienceLevel)?.label),
+      ].filter(Boolean).join(' | ')),
+    }
+  })
+
+  const ranked = rankAndLimit(normalized, request)
+  return Promise.all(ranked.map((result) => enrichSmartRecruitersResult(companyIdentifier, result)))
+}
+
+async function searchIcims(request: Required<SearchRequest>): Promise<SearchResult[]> {
+  const boardUrl = extractIcimsBoardUrl(request.boardOrSite)
+  if (!boardUrl) {
+    throw new Error('Could not determine the iCIMS jobs URL.')
+  }
+
+  return searchCareerPageLinks(request, {
+    source: 'icims',
+    sourceLabel: `iCIMS / ${humanizeToken(readHostnameLabel(boardUrl))}`,
+    listingUrl: boardUrl,
+    company: humanizeToken(readHostnameLabel(boardUrl)),
+    hrefPatterns: [/\/jobs\/\d+/i],
+  })
+}
+
+async function searchWorkable(request: Required<SearchRequest>): Promise<SearchResult[]> {
+  const subdomain = extractWorkableSubdomain(request.boardOrSite)
+  if (!subdomain) {
+    throw new Error('Could not determine the Workable account subdomain.')
+  }
+
+  const response = await fetchWithTimeout(`https://www.workable.com/api/accounts/${subdomain}?details=true`)
+  if (!response.ok) {
+    throw new Error(`Workable search failed with status ${response.status}.`)
+  }
+
+  const payload = (await response.json()) as {
+    company?: Record<string, unknown>
+    jobs?: Array<Record<string, unknown>>
+  }
+  const company = asString(payload.company?.name) || humanizeToken(subdomain)
+
+  const normalized = (payload.jobs ?? []).map((job) => {
+    const title = asString(job.title)
+    const description = summarizeDescription(
+      asString(job.description)
+      || asString(job.full_description)
+      || asString(job.requirements)
+      || asString(job.benefits)
+    )
+    const location = formatWorkableLocation(job)
+
+    return {
+      source: 'workable' as const,
+      external_id: asString(job.id) || asString(job.shortcode) || asString(job.url) || title,
+      source_label: `Workable / ${subdomain}`,
+      title,
+      company,
+      location,
+      remote_type: mapWorkableRemoteType(job, location, description),
+      employment_type: humanizeEnum(asString(job.employment_type)) || inferEmploymentType([title, description]),
+      salary_range: formatWorkableSalary(job),
+      job_url: asString(job.url) || buildWorkableJobUrl(subdomain, asString(job.shortcode)),
+      description,
+    }
+  })
+
+  return rankAndLimit(normalized, request)
+}
+
+async function searchJobvite(request: Required<SearchRequest>): Promise<SearchResult[]> {
+  const company = extractJobviteCompany(request.boardOrSite)
+  if (!company) {
+    throw new Error('Could not determine the Jobvite company identifier.')
+  }
+
+  return searchCareerPageLinks(request, {
+    source: 'jobvite',
+    sourceLabel: `Jobvite / ${company}`,
+    listingUrl: buildJobviteBoardUrl(request.boardOrSite),
+    company: humanizeToken(company),
+    hrefPatterns: [/jobvite\.com\/[^"'<>]*\/job\//i, /\/job\/[a-z0-9_-]+/i],
+  })
+}
+
+async function searchGoogleJobs(request: Required<SearchRequest>): Promise<SearchResult[]> {
+  const apiKey = Deno.env.get('SERPAPI_KEY')
+  if (!apiKey) {
+    throw new Error('SerpApi search is not configured. Run "npx supabase secrets set SERPAPI_KEY=your_key".')
+  }
+
+  const queryParts = []
+  if (request.query) queryParts.push(request.query)
+  if (request.location) queryParts.push(request.location)
+  if (request.remoteOnly) queryParts.push('remote')
+
+  const query = queryParts.join(' ') || 'software engineer'
+  const params = new URLSearchParams({
+    engine: 'google_jobs',
+    q: query,
+    api_key: apiKey,
+    num: String(Math.min(request.limit, 20)),
+  })
+
+  const response = await fetchWithTimeout(`https://serpapi.com/search.json?${params.toString()}`)
+  if (!response.ok) {
+    throw new Error(`Google Jobs search failed with status ${response.status}`)
+  }
+
+  const data = await response.json()
+  const results: any[] = data.jobs_results || []
+
+  return results.map((job) => {
+    let remoteType: RemoteType = 'unknown'
+    const titleLower = job.title?.toLowerCase() || ''
+    const descLower = job.description?.toLowerCase() || ''
+    const locationLower = job.location?.toLowerCase() || ''
+
+    if (titleLower.includes('remote') || descLower.includes('remote') || locationLower.includes('anywhere')) {
+      remoteType = 'remote'
+    } else if (titleLower.includes('hybrid') || descLower.includes('hybrid')) {
+      remoteType = 'hybrid'
+    }
+
+    const extensions = job.detected_extensions || {}
+    let employmentType = extensions.schedule_type || 'Full-time'
+    let salaryRange = extensions.salary || ''
+
+    return {
+      source: 'google_jobs' as const,
+      external_id: `gjobs_${job.job_id}`,
+      source_label: 'Google Jobs',
+      title: job.title || 'Unknown Title',
+      company: job.company_name || 'Unknown Company',
+      location: job.location || 'Remote',
+      remote_type: remoteType,
+      employment_type: employmentType,
+      salary_range: salaryRange,
+      job_url: job.related_links?.[0]?.link || job.share_link || '',
+      description: job.description || 'No description provided.',
+    }
+  })
+}
+
 async function searchUsaJobs(request: Required<SearchRequest>): Promise<SearchResult[]> {
   const apiKey = Deno.env.get('USAJOBS_API_KEY')
   const userAgent = Deno.env.get('USAJOBS_USER_AGENT')
@@ -468,7 +976,7 @@ async function searchUsaJobs(request: Required<SearchRequest>): Promise<SearchRe
     if (request.location) params.set('LocationName', request.location)
     if (request.remoteOnly) params.set('RemoteIndicator', 'True')
 
-    const response = await fetch(`https://data.usajobs.gov/api/search?${params.toString()}`, {
+    const response = await fetchWithTimeout(`https://data.usajobs.gov/api/search?${params.toString()}`, {
       headers: {
         Host: 'data.usajobs.gov',
         'User-Agent': userAgent,
@@ -529,7 +1037,11 @@ async function searchUsaJobs(request: Required<SearchRequest>): Promise<SearchRe
   return rankAndLimit(normalized, request)
 }
 
-function extractCareerAnchors(html: string, baseUrl: string) {
+function extractCareerAnchors(
+  html: string,
+  baseUrl: string,
+  options: { hrefPatterns?: RegExp[]; maxItems?: number } = {},
+) {
   const matches = [...html.matchAll(/<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)]
   const unique = new Map<string, { title: string; url: string; location: string }>()
 
@@ -542,15 +1054,679 @@ function extractCareerAnchors(html: string, baseUrl: string) {
     }
 
     const url = resolveMaybeRelativeUrl(baseUrl, href)
+    if (options.hrefPatterns?.length && !options.hrefPatterns.some((pattern) => pattern.test(url))) {
+      continue
+    }
     unique.set(url, {
       title: text.slice(0, 120),
       url,
       location: '',
     })
-    if (unique.size >= 12) break
+    if (unique.size >= (options.maxItems ?? 12)) break
   }
 
   return [...unique.values()]
+}
+
+type WorkdayBoardDescriptor = {
+  apiBaseUrl: string
+  browseUrl: string
+  origin: string
+  tenant: string
+  site: string
+  company: string
+  label: string
+}
+
+type CareerPageSearchOptions = {
+  source: ConnectorSource
+  sourceLabel: string
+  listingUrl: string
+  company: string
+  hrefPatterns: RegExp[]
+}
+
+type JobPageMetadata = {
+  external_id?: string
+  title?: string
+  company?: string
+  location?: string
+  remote_type?: RemoteType
+  employment_type?: string
+  salary_range?: string
+  job_url?: string
+  description?: string
+}
+
+function buildJsonHeaders(origin?: string): Record<string, string> {
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    'Content-Type': 'application/json',
+    'User-Agent': 'Mozilla/5.0 (compatible; CareerCockpitBot/1.0)',
+  }
+  if (origin) headers.Origin = origin
+  return headers
+}
+
+function containsAnySupportedAtsTerm(lower: string): boolean {
+  return [
+    'greenhouse',
+    'lever',
+    'workday',
+    'ashby',
+    'smartrecruiters',
+    'icims',
+    'workable',
+    'jobvite',
+  ].some((term) => lower.includes(term))
+}
+
+function findFirstUrlMatch(values: string[], patterns: RegExp[]): string {
+  for (const value of values) {
+    if (!value) continue
+    for (const pattern of patterns) {
+      const match = value.match(pattern)
+      if (match?.[0]) return match[0]
+    }
+  }
+  return ''
+}
+
+function readHostnameLabel(url: string): string {
+  try {
+    const parsed = new URL(url.startsWith('http') ? url : `https://${url}`)
+    const labels = parsed.hostname.split('.').filter(Boolean)
+    return labels.find((label) => label !== 'www') ?? labels[0] ?? ''
+  } catch {
+    return sanitizeToken(url.split('/')[0] ?? '')
+  }
+}
+
+export function extractWorkdayBoardUrl(input: string): string {
+  return extractWorkdayBoardDescriptor(input)?.apiBaseUrl ?? ''
+}
+
+function extractWorkdayBoardDescriptor(input: string): WorkdayBoardDescriptor | null {
+  const trimmed = input.trim()
+  if (!trimmed) return null
+
+  try {
+    const url = new URL(trimmed.startsWith('http') ? trimmed : `https://${trimmed}`)
+    const parts = url.pathname.split('/').filter(Boolean)
+    const isWorkdayHost = /(?:myworkdayjobs\.com|myworkdaysite\.com)$/i.test(url.hostname)
+    const isWorkdayPath = (parts[0] === 'wday' && parts[1] === 'cxs') || parts[0] === 'recruiting'
+    if (!isWorkdayHost && !isWorkdayPath) return null
+
+    const tenantFromHost = sanitizeToken(url.hostname.split('.')[0] ?? '')
+    let tenant = ''
+    let site = ''
+
+    if (parts[0] === 'wday' && parts[1] === 'cxs') {
+      tenant = sanitizeToken(parts[2] ?? tenantFromHost)
+      site = sanitizeToken(parts[3] ?? '')
+    } else if (parts[0] === 'recruiting') {
+      tenant = sanitizeToken(parts[1] ?? tenantFromHost)
+      site = sanitizeToken(parts[2] ?? '')
+    } else {
+      const withoutLocale = parts.filter((part, index) => !(index === 0 && /^[a-z]{2}(?:-[a-z]{2})?$/i.test(part)))
+      tenant = tenantFromHost
+      site = sanitizeToken(withoutLocale.at(-1) ?? '')
+    }
+
+    if (!tenant || !site) return null
+
+    const origin = `${url.protocol}//${url.host}`
+    const browseUrl = `${origin}/${parts.join('/') || site}`
+
+    return {
+      apiBaseUrl: `${origin}/wday/cxs/${tenant}/${site}`,
+      browseUrl,
+      origin,
+      tenant,
+      site,
+      company: humanizeToken(tenantFromHost || tenant || site),
+      label: `${tenant}/${site}`,
+    }
+  } catch {
+    return null
+  }
+}
+
+function extractAshbyBoardName(input: string): string {
+  const trimmed = input.trim()
+  if (!trimmed) return ''
+  if (!trimmed.includes('/')) return sanitizeToken(trimmed)
+
+  try {
+    const url = new URL(trimmed.startsWith('http') ? trimmed : `https://${trimmed}`)
+    const parts = url.pathname.split('/').filter(Boolean)
+
+    if (url.hostname.includes('api.ashbyhq.com')) {
+      const index = parts.findIndex((part) => part === 'job-board')
+      return sanitizeToken(index >= 0 ? parts[index + 1] ?? '' : '')
+    }
+
+    if (url.hostname.includes('ashbyhq.com')) {
+      return sanitizeToken(parts[0] ?? '')
+    }
+  } catch {
+    return ''
+  }
+
+  return ''
+}
+
+function extractSmartRecruitersCompany(input: string): string {
+  const trimmed = input.trim()
+  if (!trimmed) return ''
+  if (!trimmed.includes('/')) return sanitizeToken(trimmed)
+
+  try {
+    const url = new URL(trimmed.startsWith('http') ? trimmed : `https://${trimmed}`)
+    const parts = url.pathname.split('/').filter(Boolean)
+
+    if (url.hostname.includes('api.smartrecruiters.com')) {
+      const index = parts.findIndex((part) => part === 'companies')
+      return sanitizeToken(index >= 0 ? parts[index + 1] ?? '' : '')
+    }
+
+    if (url.hostname.includes('smartrecruiters.com')) {
+      return sanitizeToken(parts[0] ?? '')
+    }
+  } catch {
+    return ''
+  }
+
+  return ''
+}
+
+function extractIcimsBoardUrl(input: string): string {
+  const trimmed = input.trim()
+  if (!trimmed) return ''
+  if (!trimmed.includes('/')) return ''
+
+  try {
+    const url = new URL(trimmed.startsWith('http') ? trimmed : `https://${trimmed}`)
+    const looksLikeIcims = /icims/i.test(url.hostname)
+      || /icims/i.test(url.pathname)
+      || /\/jobs\/search/i.test(url.pathname)
+      || /\/jobs\/\d+/i.test(url.pathname)
+      || /(?:^|&)ss=1(?:&|$)/i.test(url.search.replace(/^\?/, ''))
+    if (!looksLikeIcims) return ''
+
+    if (/\/jobs\/\d+/i.test(url.pathname)) {
+      url.pathname = url.pathname.replace(/\/jobs\/\d+[^/]*\/.*/i, '/jobs/search')
+    }
+
+    url.hash = ''
+    return url.toString()
+  } catch {
+    return ''
+  }
+}
+
+function extractWorkableSubdomain(input: string): string {
+  const trimmed = input.trim()
+  if (!trimmed) return ''
+  if (!trimmed.includes('/')) return sanitizeToken(trimmed)
+
+  try {
+    const url = new URL(trimmed.startsWith('http') ? trimmed : `https://${trimmed}`)
+    const parts = url.pathname.split('/').filter(Boolean)
+
+    if (url.hostname.includes('apply.workable.com')) {
+      return sanitizeToken(parts[0] ?? '')
+    }
+
+    if (url.hostname.includes('workable.com')) {
+      const index = parts.findIndex((part) => part === 'accounts')
+      return sanitizeToken(index >= 0 ? parts[index + 1] ?? '' : '')
+    }
+  } catch {
+    return ''
+  }
+
+  return ''
+}
+
+function extractJobviteCompany(input: string): string {
+  const trimmed = input.trim()
+  if (!trimmed) return ''
+  if (!trimmed.includes('/')) return sanitizeToken(trimmed)
+
+  try {
+    const url = new URL(trimmed.startsWith('http') ? trimmed : `https://${trimmed}`)
+    const parts = url.pathname.split('/').filter(Boolean)
+    if (url.hostname.includes('jobvite.com')) {
+      return sanitizeToken(parts[0] ?? '')
+    }
+  } catch {
+    return ''
+  }
+
+  return ''
+}
+
+function buildWorkableJobUrl(subdomain: string, shortcode: string): string {
+  return shortcode ? `https://apply.workable.com/${subdomain}/j/${shortcode}` : ''
+}
+
+function buildJobviteBoardUrl(input: string): string {
+  const company = extractJobviteCompany(input)
+  return company ? `https://jobs.jobvite.com/${company}` : input.trim()
+}
+
+function humanizeEnum(value: string): string {
+  return value
+    .replace(/_/g, ' ')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .trim()
+}
+
+function formatAshbyLocation(job: Record<string, unknown>): string {
+  const primary = asString(job.location)
+  if (primary) return primary
+
+  const postalAddress = asObject(asObject(job.address)?.postalAddress)
+  return [
+    asString(postalAddress?.addressLocality),
+    asString(postalAddress?.addressRegion),
+    asString(postalAddress?.addressCountry),
+  ].filter(Boolean).join(', ')
+}
+
+function deriveAshbyCompany(job: Record<string, unknown>, boardName: string): string {
+  return asString(job.companyName)
+    || asString(asObject(job.organization)?.name)
+    || humanizeToken(boardName)
+}
+
+function mapAshbyRemoteType(
+  job: Record<string, unknown>,
+  location: string,
+  description: string,
+): RemoteType {
+  const workplaceType = normalizeText(asString(job.workplaceType))
+  if (job.isRemote === true || workplaceType === 'remote') return 'remote'
+  if (workplaceType === 'hybrid') return 'hybrid'
+  if (workplaceType === 'on site' || workplaceType === 'onsite') return 'onsite'
+  return guessRemoteType([location, description])
+}
+
+function formatAshbyCompensation(value: Record<string, unknown> | null): string {
+  if (!value) return ''
+  return asString(value.scrapeableCompensationSalarySummary)
+    || asString(value.compensationTierSummary)
+}
+
+function formatSmartRecruitersLocation(value: Record<string, unknown> | null): string {
+  if (!value) return ''
+
+  const parts = [
+    asString(value.city),
+    asString(value.region),
+    asString(value.country),
+  ].filter(Boolean)
+  const base = parts.join(', ')
+  return value.remote === true ? (base ? `${base} | Remote` : 'Remote') : base
+}
+
+async function enrichSmartRecruitersResult(
+  companyIdentifier: string,
+  result: SearchResult,
+): Promise<SearchResult> {
+  if (!result.external_id) return result
+
+  try {
+    const response = await fetchWithTimeout(`https://api.smartrecruiters.com/v1/companies/${companyIdentifier}/postings/${result.external_id}`)
+    if (!response.ok) return result
+
+    const payload = (await response.json()) as Record<string, unknown>
+    const sections = asObject(asObject(payload.jobAd)?.sections)
+    const description = summarizeDescription([
+      asString(asObject(sections?.companyDescription)?.text),
+      asString(asObject(sections?.jobDescription)?.text),
+      asString(asObject(sections?.qualifications)?.text),
+      asString(asObject(sections?.additionalInformation)?.text),
+    ].filter(Boolean).join('\n\n'))
+    const location = formatSmartRecruitersLocation(asObject(payload.location))
+
+    return {
+      ...result,
+      company: asString(asObject(payload.company)?.name) || result.company,
+      location: location || result.location,
+      remote_type: asObject(payload.location)?.remote === true ? 'remote' : result.remote_type,
+      employment_type: asString(asObject(payload.typeOfEmployment)?.label) || result.employment_type,
+      job_url: asString(payload.applyUrl) || result.job_url,
+      description: description || result.description,
+    }
+  } catch {
+    return result
+  }
+}
+
+async function searchCareerPageLinks(
+  request: Required<SearchRequest>,
+  options: CareerPageSearchOptions,
+): Promise<SearchResult[]> {
+  const response = await fetchWithTimeout(options.listingUrl, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (compatible; CareerCockpitBot/1.0)',
+    },
+  })
+  if (!response.ok) {
+    throw new Error(`${humanizeToken(options.source)} search failed with status ${response.status}.`)
+  }
+
+  const html = await response.text()
+  let normalized = extractJsonLdSearchResults(
+    html,
+    options.listingUrl,
+    options.source,
+    options.sourceLabel,
+    options.company,
+  )
+
+  if (normalized.length === 0) {
+    const anchors = extractCareerAnchors(html, options.listingUrl, {
+      hrefPatterns: options.hrefPatterns,
+      maxItems: Math.max(request.limit * 4, 40),
+    })
+    normalized = anchors.map((job, index) => ({
+      source: options.source,
+      external_id: deriveExternalIdFromUrl(job.url) || `${options.source}-${index + 1}`,
+      source_label: options.sourceLabel,
+      title: job.title,
+      company: options.company,
+      location: job.location,
+      remote_type: guessRemoteType([job.title, job.location]),
+      employment_type: inferEmploymentType([job.title]),
+      salary_range: '',
+      job_url: job.url,
+      description: '',
+    }))
+  }
+
+  return enrichResultsFromJobPages(rankAndLimit(normalized, request))
+}
+
+async function enrichResultsFromJobPages(results: SearchResult[]): Promise<SearchResult[]> {
+  return Promise.all(results.map(async (result) => {
+    if (!needsResultEnrichment(result) || !result.job_url) return result
+
+    try {
+      const response = await fetchWithTimeout(result.job_url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; CareerCockpitBot/1.0)',
+        },
+      })
+      if (!response.ok) return result
+
+      const html = await response.text()
+      const metadata = extractJobPageMetadata(html, result.job_url, result.company)
+      return metadata ? mergeSearchResult(result, metadata) : result
+    } catch {
+      return result
+    }
+  }))
+}
+
+function needsResultEnrichment(result: SearchResult): boolean {
+  return !result.description || result.remote_type === 'unknown' || !result.location || !result.employment_type
+}
+
+function mergeSearchResult(result: SearchResult, metadata: JobPageMetadata): SearchResult {
+  return {
+    ...result,
+    external_id: metadata.external_id || result.external_id,
+    title: metadata.title || result.title,
+    company: metadata.company || result.company,
+    location: metadata.location || result.location,
+    remote_type: metadata.remote_type || result.remote_type,
+    employment_type: metadata.employment_type || result.employment_type,
+    salary_range: metadata.salary_range || result.salary_range,
+    job_url: metadata.job_url || result.job_url,
+    description: metadata.description || result.description,
+  }
+}
+
+function extractJobPageMetadata(
+  html: string,
+  baseUrl: string,
+  fallbackCompany: string,
+): JobPageMetadata | null {
+  const posting = extractFirstJsonLdJobPosting(html)
+  if (posting) {
+    return mapJobPostingMetadata(posting, baseUrl, fallbackCompany)
+  }
+
+  const description = extractMetaContent(html, 'description') || extractMetaPropertyContent(html, 'og:description')
+  if (!description) return null
+
+  return {
+    description: summarizeDescription(description),
+    remote_type: guessRemoteType([description]),
+  }
+}
+
+function extractJsonLdSearchResults(
+  html: string,
+  baseUrl: string,
+  source: ConnectorSource,
+  sourceLabel: string,
+  fallbackCompany: string,
+): SearchResult[] {
+  const unique = new Map<string, SearchResult>()
+
+  for (const posting of collectJobPostingNodes(html)) {
+    const metadata = mapJobPostingMetadata(posting, baseUrl, fallbackCompany)
+    if (!metadata?.title || !metadata.job_url) continue
+
+    const externalId = metadata.external_id || deriveExternalIdFromUrl(metadata.job_url)
+    if (!externalId) continue
+
+    unique.set(externalId, {
+      source,
+      external_id: externalId,
+      source_label: sourceLabel,
+      title: metadata.title,
+      company: metadata.company || fallbackCompany,
+      location: metadata.location || '',
+      remote_type: metadata.remote_type || 'unknown',
+      employment_type: metadata.employment_type || '',
+      salary_range: metadata.salary_range || '',
+      job_url: metadata.job_url,
+      description: metadata.description || '',
+    })
+  }
+
+  return [...unique.values()]
+}
+
+function extractFirstJsonLdJobPosting(html: string): Record<string, unknown> | null {
+  return collectJobPostingNodes(html)[0] ?? null
+}
+
+function collectJobPostingNodes(html: string): Record<string, unknown>[] {
+  const matches = [...html.matchAll(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)]
+  const output: Record<string, unknown>[] = []
+
+  for (const match of matches) {
+    const content = decodeHtmlEntities(match[1] ?? '').trim()
+    if (!content) continue
+
+    try {
+      const parsed = JSON.parse(content)
+      collectJobPostingNodesFromValue(parsed, output)
+    } catch {
+      continue
+    }
+  }
+
+  return output
+}
+
+function collectJobPostingNodesFromValue(value: unknown, output: Record<string, unknown>[]) {
+  if (Array.isArray(value)) {
+    value.forEach((entry) => collectJobPostingNodesFromValue(entry, output))
+    return
+  }
+
+  const object = asObject(value)
+  if (!object) return
+
+  if (isJobPostingObject(object)) {
+    output.push(object)
+  }
+
+  for (const nested of Object.values(object)) {
+    if (nested && typeof nested === 'object') {
+      collectJobPostingNodesFromValue(nested, output)
+    }
+  }
+}
+
+function isJobPostingObject(value: Record<string, unknown>): boolean {
+  const type = value['@type']
+  if (typeof type === 'string') return type.toLowerCase() === 'jobposting'
+  if (Array.isArray(type)) {
+    return type.some((entry) => typeof entry === 'string' && entry.toLowerCase() === 'jobposting')
+  }
+  return false
+}
+
+function mapJobPostingMetadata(
+  posting: Record<string, unknown>,
+  baseUrl: string,
+  fallbackCompany: string,
+): JobPageMetadata | null {
+  const title = asString(posting.title)
+  const rawUrl = asString(posting.url) || asString(posting.applyUrl)
+  const jobUrl = rawUrl ? resolveMaybeRelativeUrl(baseUrl, rawUrl) : ''
+  if (!title && !jobUrl) return null
+
+  const hiringOrganization = asObject(posting.hiringOrganization)
+  const location = extractJobPostingLocation(posting.jobLocation)
+  const description = summarizeDescription(asString(posting.description))
+  const employmentType = humanizeEnum(firstString(posting.employmentType) || asString(posting.employmentType))
+  const remoteType = asString(posting.jobLocationType).toUpperCase() === 'TELECOMMUTE'
+    ? 'remote'
+    : guessRemoteType([location, description])
+
+  return {
+    external_id: asString(asObject(posting.identifier)?.value) || deriveExternalIdFromUrl(jobUrl),
+    title: title || deriveTitleFromUrl(jobUrl),
+    company: asString(hiringOrganization?.name) || fallbackCompany,
+    location,
+    remote_type: remoteType,
+    employment_type: employmentType,
+    salary_range: formatJobPostingSalary(posting.baseSalary),
+    job_url: jobUrl,
+    description,
+  }
+}
+
+function extractJobPostingLocation(value: unknown): string {
+  const locations = Array.isArray(value) ? value : [value]
+
+  const parts = locations
+    .map((entry) => {
+      const address = asObject(asObject(entry)?.address)
+      if (!address) return asString(asObject(entry)?.name)
+      return [
+        asString(address.addressLocality),
+        asString(address.addressRegion),
+        asString(address.addressCountry),
+      ].filter(Boolean).join(', ')
+    })
+    .filter(Boolean)
+
+  return parts.join(' | ')
+}
+
+function formatJobPostingSalary(value: unknown): string {
+  const salary = asObject(value)
+  if (!salary) return ''
+
+  const currency = asString(asObject(salary.currency)?.name) || asString(salary.currency)
+  const unit = asString(asObject(salary.unitText)?.name) || asString(salary.unitText)
+  const salaryValue = asObject(salary.value)
+  const minValue = toNumber(salaryValue?.minValue ?? salaryValue?.value)
+  const maxValue = toNumber(salaryValue?.maxValue)
+
+  if (!Number.isFinite(minValue) && !Number.isFinite(maxValue)) return ''
+
+  const formatted = Number.isFinite(maxValue)
+    ? `${currency}${Math.round(minValue).toLocaleString()} - ${currency}${Math.round(maxValue).toLocaleString()}`
+    : `${currency}${Math.round(minValue).toLocaleString()}`
+  return unit ? `${formatted} / ${unit}` : formatted
+}
+
+function extractMetaContent(html: string, name: string): string {
+  const pattern = new RegExp(`<meta[^>]+name=["']${name}["'][^>]+content=["']([^"']+)["']`, 'i')
+  return decodeHtmlEntities(html.match(pattern)?.[1] ?? '').trim()
+}
+
+function extractMetaPropertyContent(html: string, property: string): string {
+  const pattern = new RegExp(`<meta[^>]+property=["']${property}["'][^>]+content=["']([^"']+)["']`, 'i')
+  return decodeHtmlEntities(html.match(pattern)?.[1] ?? '').trim()
+}
+
+function deriveExternalIdFromUrl(url: string): string {
+  if (!url) return ''
+
+  try {
+    const parsed = new URL(url)
+    const parts = parsed.pathname.split('/').filter(Boolean)
+    return sanitizeToken(parts.at(-1) ?? parsed.pathname)
+  } catch {
+    return sanitizeToken(url)
+  }
+}
+
+function deriveTitleFromUrl(url: string): string {
+  if (!url) return ''
+
+  try {
+    const parsed = new URL(url)
+    const lastPart = parsed.pathname.split('/').filter(Boolean).at(-1) ?? ''
+    return humanizeToken(lastPart.replace(/\.[a-z]+$/i, ''))
+  } catch {
+    return humanizeToken(url)
+  }
+}
+
+function formatWorkableLocation(job: Record<string, unknown>): string {
+  const location = asObject(job.location)
+  return asString(location?.location_str)
+    || [
+      asString(location?.city),
+      asString(location?.region),
+      asString(location?.country),
+    ].filter(Boolean).join(', ')
+    || asString(job.location)
+}
+
+function mapWorkableRemoteType(
+  job: Record<string, unknown>,
+  location: string,
+  description: string,
+): RemoteType {
+  const workplace = normalizeText(asString(job.workplace))
+  if (job.remote === true || workplace.includes('remote')) return 'remote'
+  if (workplace.includes('hybrid')) return 'hybrid'
+  if (workplace.includes('on site') || workplace.includes('onsite')) return 'onsite'
+  return guessRemoteType([location, description])
+}
+
+function formatWorkableSalary(job: Record<string, unknown>): string {
+  const compensation = asObject(job.compensation)
+  if (compensation) {
+    return asString(compensation.summary)
+      || asString(compensation.salary_range)
+      || asString(compensation.salaryRange)
+  }
+  return asString(job.salary_range) || asString(job.salaryRange)
 }
 
 function rankAndLimit(results: SearchResult[], request: Required<SearchRequest>): SearchResult[] {
@@ -644,6 +1820,8 @@ function computeTechnicalTitleAdjustment(title: string, description: string, tec
   const targetContextHits = countPhraseMatches(jobText, TARGET_TECH_CONTEXT_PHRASES)
   const icSignalHits = countPhraseMatches(jobText, INDIVIDUAL_CONTRIBUTOR_TECH_PHRASES)
   const offTargetDomainHits = countPhraseMatches(jobText, OFF_TARGET_DOMAIN_TEXT_PHRASES)
+  const strongOffTargetGtmTitleHits = countPhraseMatches(title, STRONG_OFF_TARGET_GTM_TITLE_PHRASES)
+  const strongOffTargetGtmTextHits = countPhraseMatches(jobText, STRONG_OFF_TARGET_GTM_TEXT_PHRASES)
   const offTargetLeadershipTitleHits = countPhraseMatches(title, OFF_TARGET_LEADERSHIP_TITLE_PHRASES)
 
   if (containsAnyPhrase(title, CORE_TECH_TITLE_PHRASES)) {
@@ -669,8 +1847,18 @@ function computeTechnicalTitleAdjustment(title: string, description: string, tec
     score += 2
   }
 
+  if (strongOffTargetGtmTitleHits > 0) {
+    score -= targetContextHits <= 2 ? 22 : 12
+  }
+
   if (containsAnyPhrase(title, OFF_TARGET_TITLE_PHRASES)) {
     score -= targetContextHits <= 1 ? 16 : 8
+  }
+
+  if (strongOffTargetGtmTextHits >= 2 && targetContextHits <= 2) {
+    score -= 10
+  } else if (strongOffTargetGtmTextHits > 0 && targetContextHits === 0) {
+    score -= 6
   }
 
   if (containsAnyPhrase(title, OFF_TARGET_ENGINEERING_TITLE_PHRASES)) {
@@ -807,6 +1995,10 @@ function asObject(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' ? (value as Record<string, unknown>) : null
 }
 
+function toNumber(value: unknown): number {
+  return typeof value === 'number' ? value : Number(value)
+}
+
 function asString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
 }
@@ -911,4 +2103,55 @@ function resolveMaybeRelativeUrl(baseUrl: string, href: string): string {
   } catch {
     return href
   }
+}
+
+async function searchAdzuna(request: Required<SearchRequest>): Promise<SearchResult[]> {
+  const appId = Deno.env.get('ADZUNA_APP_ID')
+  const appKey = Deno.env.get('ADZUNA_APP_KEY')
+
+  if (!appId || !appKey) {
+    throw new Error('Adzuna search requires ADZUNA_APP_ID and ADZUNA_APP_KEY in Supabase secrets.')
+  }
+
+  // Defaulting to US, could be enhanced later
+  const country = 'us'
+  const params = new URLSearchParams({
+    app_id: appId,
+    app_key: appKey,
+    results_per_page: String(Math.min(request.limit, 50)),
+  })
+
+  if (request.query) params.set('what', request.query)
+  if (request.location) params.set('where', request.location)
+
+  const response = await fetchWithTimeout(`https://api.adzuna.com/v1/api/jobs/${country}/search/1?${params.toString()}`)
+
+  if (!response.ok) {
+    throw new Error(`Adzuna search failed with status ${response.status}.`)
+  }
+
+  const payload = (await response.json()) as { results?: Array<Record<string, unknown>> }
+  const normalized = (payload.results ?? []).map((job) => {
+    const title = asString(job.title)
+    const company = asString(asObject(job.company)?.display_name) || 'Unknown'
+    const locationObj = asObject(job.location)
+    const location = locationObj ? asString(locationObj.display_name) : ''
+    const description = asString(job.description)
+
+    return {
+      source: 'adzuna' as const,
+      external_id: asString(job.id) || String(Math.random()),
+      source_label: 'Adzuna Public Search',
+      title,
+      company,
+      location,
+      remote_type: guessRemoteType([location, title, description]),
+      employment_type: asString(job.contract_type) || inferEmploymentType([title, description]),
+      salary_range: '',
+      job_url: asString(job.redirect_url),
+      description: summarizeDescription(description),
+    }
+  })
+
+  return rankAndLimit(normalized, request)
 }

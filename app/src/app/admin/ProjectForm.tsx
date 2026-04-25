@@ -1,6 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Project } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -21,7 +20,7 @@ import {
 } from '@/lib/supabase'
 import { getAdminPath } from '@/lib/adminConfig'
 import { cn, generateSlug } from '@/lib/utils'
-import { fetchProjectFromGitHubUrl } from '@/lib/github'
+import { fetchProjectFromGitHubUrl, type GitHubImportSummary } from '@/lib/github'
 import { getSuggestedCoverImage } from '@/lib/coverSuggestions'
 import { ProjectDetail } from '@/components/public/ProjectDetail'
 import { isUnsplashConfigured, searchUnsplash, type UnsplashResult } from '@/lib/unsplash'
@@ -44,6 +43,7 @@ type ProjectFormState = {
 type ProjectDraft = {
   formData: ProjectFormState
   githubImportUrl: string
+  importSummary: GitHubImportSummary | null
 }
 
 export function AdminProjectForm() {
@@ -74,6 +74,7 @@ export function AdminProjectForm() {
   const [githubImportUrl, setGithubImportUrl] = useState('')
   const [isImporting, setIsImporting] = useState(false)
   const [importError, setImportError] = useState<string | null>(null)
+  const [importSummary, setImportSummary] = useState<GitHubImportSummary | null>(null)
   const [previewOpen, setPreviewOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
@@ -114,7 +115,7 @@ export function AdminProjectForm() {
             title: project.title,
             description: project.description,
             cover_image: project.cover_image,
-            tags: project.tags,
+            tags: mergeProjectTags(project.tags),
             github_url: project.github_url,
             demo_url: project.demo_url,
             display_order: project.display_order,
@@ -125,6 +126,7 @@ export function AdminProjectForm() {
             ...nextFormData,
           })
           setPreviewImage(project.cover_image)
+          setImportSummary(null)
           editor?.commands.setContent(project.description)
           lastSavedSnapshotRef.current = JSON.stringify(nextFormData)
           hasHydratedRef.current = true
@@ -133,8 +135,12 @@ export function AdminProjectForm() {
     } else if (!restoredDraftRef.current && editor) {
       const draft = readProjectDraft()
       if (draft) {
-        setFormData(draft.formData)
+        setFormData({
+          ...draft.formData,
+          tags: mergeProjectTags(draft.formData.tags),
+        })
         setGithubImportUrl(draft.githubImportUrl)
+        setImportSummary(draft.importSummary ?? null)
         setPreviewImage(draft.formData.cover_image)
         editor.commands.setContent(draft.formData.description || '')
       }
@@ -169,11 +175,12 @@ export function AdminProjectForm() {
     writeProjectDraft({
       formData,
       githubImportUrl,
+      importSummary,
     })
     setAutoSaveMessage('Draft saved locally')
     const timeoutId = window.setTimeout(() => setAutoSaveMessage(null), 1200)
     return () => window.clearTimeout(timeoutId)
-  }, [formData, githubImportUrl, id, isEditing])
+  }, [formData, githubImportUrl, id, importSummary, isEditing])
 
   const getSuggestedCover = useCallback(async (tags: string[], slug: string, title: string) => {
     const searchTerm = [...tags.slice(0, 2), title].filter(Boolean).join(' ')
@@ -213,8 +220,9 @@ export function AdminProjectForm() {
   }, [id])
 
   const handleAddTag = () => {
-    if (newTag && !formData.tags.includes(newTag)) {
-      setFormData(prev => ({ ...prev, tags: [...prev.tags, newTag] }))
+    const normalizedTag = normalizeProjectTag(newTag)
+    if (normalizedTag) {
+      setFormData(prev => ({ ...prev, tags: addProjectTag(prev.tags, normalizedTag) }))
       setNewTag('')
     }
   }
@@ -229,18 +237,21 @@ export function AdminProjectForm() {
     setImportError(null)
     try {
       const data = await fetchProjectFromGitHubUrl(githubImportUrl.trim())
+      const mergedTags = mergeProjectTags(formData.tags, data.tags)
       setFormData(prev => ({
         ...prev,
         title: data.title,
         description: data.description,
         slug: data.slug,
-        tags: data.tags.length > 0 ? data.tags : prev.tags,
+        tags: mergedTags.length > 0 ? mergedTags : prev.tags,
         github_url: data.github_url,
         demo_url: data.demo_url ?? prev.demo_url,
+        ask_me_about: data.ask_me_about ?? prev.ask_me_about,
       }))
+      setImportSummary(data.import_summary)
       editor?.commands.setContent(data.description)
       const suggestedCover = await getSuggestedCover(
-        data.tags.length > 0 ? data.tags : formData.tags,
+        mergedTags.length > 0 ? mergedTags : formData.tags,
         data.slug,
         data.title
       )
@@ -302,6 +313,11 @@ export function AdminProjectForm() {
     setIsSubmitting(true)
 
     try {
+      const syncedSkills = await ensureSkillsForTags(formData.tags)
+      if (syncedSkills.length > 0) {
+        setAvailableTags((prev) => mergeProjectTags(prev, syncedSkills))
+      }
+
       let savedProjectId = id ?? null
 
       if (isEditing && id) {
@@ -317,15 +333,6 @@ export function AdminProjectForm() {
           await updateProject(savedProjectId, { cover_image: uploadedCoverUrl })
         }
       }
-
-      const skills = await getSkills()
-      const skillNames = new Set(skills.map(s => s.name))
-      const defaultColor = '#3b82f6'
-      Promise.all(
-        formData.tags
-          .filter(tag => !skillNames.has(tag))
-          .map(tag => createSkill(tag, 'technical', defaultColor).catch(console.error))
-      )
       clearProjectDraft()
       navigate(getAdminPath('projects'))
     } catch (error) {
@@ -352,7 +359,7 @@ export function AdminProjectForm() {
             <CardContent className="p-6 space-y-3">
               <Label className="text-sm font-medium">Import from GitHub</Label>
               <p className="text-xs text-muted-foreground">
-                Paste a public repo URL to pre-fill title, description, slug, tags, and homepage.
+                Paste a public repo URL to build a cleaner project entry from the README, repo structure, languages, and manifests.
               </p>
               <div className="flex gap-2">
                 <Input
@@ -373,6 +380,68 @@ export function AdminProjectForm() {
               </div>
               {importError && (
                 <p className="text-xs text-destructive">{importError}</p>
+              )}
+              {importSummary && (
+                <div className="rounded-lg border border-white/10 bg-black/20 p-4 space-y-3">
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div>
+                      <p className="text-sm font-medium">Detected from GitHub</p>
+                      <p className="text-xs text-muted-foreground">
+                        Title source: {importSummary.title_source === 'readme_heading' ? 'README heading' : 'repository name'}
+                      </p>
+                    </div>
+                    {importSummary.repo_kinds.length > 0 && (
+                      <div className="flex flex-wrap gap-2">
+                        {importSummary.repo_kinds.map((kind) => (
+                          <Badge key={kind} variant="secondary">{kind}</Badge>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {importSummary.highlights.length > 0 && (
+                    <div className="space-y-1">
+                      <p className="text-xs font-medium text-foreground/90">Highlights</p>
+                      <ul className="list-disc pl-5 text-xs text-muted-foreground space-y-1">
+                        {importSummary.highlights.slice(0, 4).map((item) => (
+                          <li key={item}>{item}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {importSummary.detected_tags.length > 0 && (
+                    <div className="space-y-1">
+                      <p className="text-xs font-medium text-foreground/90">Detected tags</p>
+                      <div className="flex flex-wrap gap-2">
+                        {importSummary.detected_tags.map((tag) => (
+                          <Badge key={tag} variant="secondary">
+                            {tag}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {importSummary.notable_files.length > 0 && (
+                    <div className="space-y-1">
+                      <p className="text-xs font-medium text-foreground/90">Notable files</p>
+                      <div className="flex flex-wrap gap-2">
+                        {importSummary.notable_files.map((file) => (
+                          <Badge key={file} variant="outline" className="font-mono text-[11px]">
+                            {file}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {importSummary.readme_sections.length > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      README sections kept: {importSummary.readme_sections.slice(0, 5).join(', ')}
+                    </p>
+                  )}
+                </div>
               )}
             </CardContent>
           </Card>
@@ -485,6 +554,9 @@ export function AdminProjectForm() {
                   </Badge>
                 ))}
               </div>
+              <p className="text-xs text-muted-foreground">
+                Tags are also synced into the Skills table on save, so imported projects can strengthen resume and matching data.
+              </p>
               <div className="flex gap-2">
                 <Input
                   value={newTag}
@@ -506,12 +578,12 @@ export function AdminProjectForm() {
                 <div className="flex flex-wrap gap-1 mt-2">
                   <span className="text-xs text-muted-foreground mr-2">Suggested:</span>
                   {availableTags
-                    .filter(tag => !formData.tags.includes(tag))
+                    .filter(tag => !formData.tags.some(existing => existing.toLowerCase() === tag.toLowerCase()))
                     .map((tag) => (
                       <button
                         key={tag}
                         type="button"
-                        onClick={() => setFormData(prev => ({ ...prev, tags: [...prev.tags, tag] }))}
+                        onClick={() => setFormData(prev => ({ ...prev, tags: addProjectTag(prev.tags, tag) }))}
                         className="text-xs px-2 py-1 rounded bg-white/5 hover:bg-white/10 transition-colors"
                       >
                         {tag}
@@ -774,4 +846,76 @@ function writeProjectDraft(value: ProjectDraft) {
 function clearProjectDraft() {
   if (typeof window === 'undefined') return
   window.localStorage.removeItem(NEW_PROJECT_DRAFT_KEY)
+}
+
+function normalizeProjectTag(tag: string): string {
+  return tag
+    .trim()
+    .replace(/\s+/g, ' ')
+}
+
+function addProjectTag(tags: string[], tag: string): string[] {
+  const normalizedTag = normalizeProjectTag(tag)
+  if (!normalizedTag) return tags
+  if (tags.some((entry) => entry.toLowerCase() === normalizedTag.toLowerCase())) return tags
+  return [...tags, normalizedTag]
+}
+
+function mergeProjectTags(...groups: string[][]): string[] {
+  return groups.reduce((acc, group) => {
+    for (const tag of group) {
+      const normalizedTag = normalizeProjectTag(tag)
+      if (!normalizedTag) continue
+      if (acc.some((entry) => entry.toLowerCase() === normalizedTag.toLowerCase())) continue
+      acc.push(normalizedTag)
+    }
+    return acc
+  }, [] as string[])
+}
+
+async function ensureSkillsForTags(tags: string[]): Promise<string[]> {
+  const normalizedTags = mergeProjectTags(tags)
+  if (normalizedTags.length === 0) return []
+
+  const existingSkills = await getSkills()
+  const existingNames = new Set(existingSkills.map((skill) => skill.name.trim().toLowerCase()))
+  const createdSkills: string[] = []
+
+  for (const tag of normalizedTags) {
+    const key = tag.toLowerCase()
+    if (existingNames.has(key)) continue
+
+    const meta = getSkillMetaForTag(tag)
+    await createSkill(tag, meta.category, meta.color)
+    existingNames.add(key)
+    createdSkills.push(tag)
+  }
+
+  return createdSkills
+}
+
+function getSkillMetaForTag(tag: string): { category: string; color: string } {
+  const normalized = tag.trim().toLowerCase()
+
+  if (/(python|javascript|typescript|java|c\+\+|go|rust|sql|html|css|swift)/i.test(normalized)) {
+    return { category: 'languages', color: '#2563eb' }
+  }
+
+  if (/(react|next\.js|vue|angular|svelte|tailwind|vite|node\.js|express|fastapi|flask|django|graphql|rest|api|supabase)/i.test(normalized)) {
+    return { category: 'frameworks', color: '#8b5cf6' }
+  }
+
+  if (/(ai|llm|nlp|machine learning|deep learning|data science|pandas|numpy|scikit|tensorflow|pytorch|openai|opencv|computer vision)/i.test(normalized)) {
+    return { category: 'data-ai', color: '#10b981' }
+  }
+
+  if (/(docker|kubernetes|aws|gcp|github actions|postgresql|mysql|mongodb|redis)/i.test(normalized)) {
+    return { category: 'cloud-devops', color: '#f59e0b' }
+  }
+
+  if (/(analytics|bi|business intelligence|data|risk)/i.test(normalized)) {
+    return { category: 'analytics', color: '#ec4899' }
+  }
+
+  return { category: 'technical', color: '#3b82f6' }
 }

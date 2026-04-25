@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { BellRing, Mail, RefreshCw } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -91,7 +92,7 @@ export function AdminInbox() {
         <div>
           <h1 className="text-3xl font-bold gradient-text">Inbox</h1>
           <p className="mt-1 text-muted-foreground">
-            Strong matches, due follow-ups, sync failures, and stale applications in one place.
+            Strong matches, application follow-ups, people follow-ups, sync failures, and stale applications in one place.
           </p>
         </div>
         <Button onClick={handleDispatch} disabled={syncing} className="gap-2">
@@ -100,13 +101,16 @@ export function AdminInbox() {
         </Button>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
-        <Card className="glass">
-          <CardContent className="space-y-4 p-4">
+      <div className="space-y-3">
+        <details className="rounded-xl border border-white/10 bg-black/20">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3">
             <div className="flex items-center gap-2 text-sm font-medium text-foreground">
               <Mail className="h-4 w-4 text-accent" />
               Notification preferences
             </div>
+            <span className="text-xs text-muted-foreground">Manage</span>
+          </summary>
+          <div className="space-y-4 border-t border-white/10 px-4 py-4">
             <PreferenceRow
               label="Email delivery"
               checked={effectivePrefs.email_enabled}
@@ -149,8 +153,8 @@ export function AdminInbox() {
               disabled={savingKey === 'weekly_digest_enabled'}
               onCheckedChange={(checked) => handleToggle('weekly_digest_enabled', checked)}
             />
-          </CardContent>
-        </Card>
+          </div>
+        </details>
 
         <div className="space-y-3">
           {(items ?? []).map((item) => (
@@ -166,9 +170,18 @@ export function AdminInbox() {
                     </div>
                     <p className="mt-1 text-sm text-muted-foreground">{item.body}</p>
                   </div>
-                  <Button variant="outline" size="sm" onClick={() => handleReadToggle(item)}>
-                    {item.is_read ? 'Mark unread' : 'Mark read'}
-                  </Button>
+                  <div className="flex flex-wrap gap-2">
+                    {item.link_path && (
+                      <Link to={item.link_path}>
+                        <Button variant="outline" size="sm">
+                          Open
+                        </Button>
+                      </Link>
+                    )}
+                    <Button variant="outline" size="sm" onClick={() => handleReadToggle(item)}>
+                      {item.is_read ? 'Mark unread' : 'Mark read'}
+                    </Button>
+                  </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                   <Badge variant="outline">{item.type.replace(/_/g, ' ')}</Badge>

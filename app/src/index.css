@@ -227,3 +227,91 @@
     cursor: auto !important;
   }
 }
+
+/* Scoped prose styles for project descriptions */
+.project-prose {
+  color: hsl(var(--muted-foreground));
+  line-height: 1.75;
+}
+
+.project-prose h2 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+  margin-top: 2rem;
+  margin-bottom: 0.75rem;
+  line-height: 1.3;
+}
+
+.project-prose h3 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+  margin-top: 1.5rem;
+  margin-bottom: 0.5rem;
+  line-height: 1.3;
+}
+
+.project-prose h4 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+  margin-top: 1.25rem;
+  margin-bottom: 0.5rem;
+}
+
+.project-prose p {
+  margin-bottom: 1rem;
+  font-size: 0.925rem;
+}
+
+.project-prose ul,
+.project-prose ol {
+  margin-bottom: 1rem;
+  padding-left: 1.5rem;
+}
+
+.project-prose li {
+  margin-bottom: 0.4rem;
+  font-size: 0.925rem;
+}
+
+.project-prose ul li {
+  list-style-type: disc;
+}
+
+.project-prose ol li {
+  list-style-type: decimal;
+}
+
+.project-prose a {
+  color: hsl(var(--accent-hue), var(--accent-saturation), var(--accent-lightness));
+  text-decoration: underline;
+  text-decoration-color: hsla(var(--accent-hue), var(--accent-saturation), var(--accent-lightness), 0.3);
+  transition: text-decoration-color 0.2s;
+}
+
+.project-prose a:hover {
+  text-decoration-color: currentColor;
+}
+
+.project-prose blockquote {
+  border-left: 3px solid hsla(var(--accent-hue), 60%, 50%, 0.4);
+  padding-left: 1rem;
+  margin: 1rem 0;
+  font-style: italic;
+  color: hsl(var(--foreground) / 0.8);
+}
+
+.project-prose code {
+  font-size: 0.85em;
+  padding: 0.15em 0.4em;
+  border-radius: 4px;
+  background: hsl(var(--surface));
+}
+
+.project-prose hr {
+  border: none;
+  border-top: 1px solid hsl(var(--border));
+  margin: 1.5rem 0;
+}

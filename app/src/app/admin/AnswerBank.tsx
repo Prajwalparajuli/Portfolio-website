@@ -4,6 +4,10 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import {
+  seedDefaultCandidateAnswers,
+  sortCandidateAnswers,
+} from '@/lib/candidateAnswerBank'
 import { deleteCandidateAnswer, getCandidateAnswers, upsertCandidateAnswer } from '@/lib/supabase'
 import { CandidateAnswer } from '@/types'
 
@@ -17,6 +21,7 @@ export function AdminAnswerBank() {
   const [answers, setAnswers] = useState<CandidateAnswer[] | null>([])
   const [form, setForm] = useState(DEFAULT_ANSWER)
   const [saving, setSaving] = useState(false)
+  const [seeding, setSeeding] = useState(false)
 
   useEffect(() => {
     getCandidateAnswers().then(setAnswers)
@@ -46,11 +51,21 @@ export function AdminAnswerBank() {
       if (!saved) return
       setAnswers((current) => {
         const next = (current ?? []).filter((item) => item.id !== saved.id && item.prompt_key !== saved.prompt_key)
-        return [...next, saved].sort((left, right) => left.category.localeCompare(right.category) || left.label.localeCompare(right.label))
+        return sortCandidateAnswers([...next, saved])
       })
       setForm(DEFAULT_ANSWER)
     } finally {
       setSaving(false)
+    }
+  }
+
+  const handleSeedStarterAnswers = async () => {
+    setSeeding(true)
+    try {
+      const seeded = await seedDefaultCandidateAnswers()
+      setAnswers(seeded)
+    } finally {
+      setSeeding(false)
     }
   }
 
@@ -81,6 +96,27 @@ export function AdminAnswerBank() {
         </p>
       </div>
 
+      {(answers ?? []).length === 0 && (
+        <Card className="glass border border-emerald-400/20">
+          <CardContent className="flex flex-wrap items-center justify-between gap-4 p-4">
+            <div>
+              <p className="text-sm font-medium text-foreground">Starter answer pack</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Seed the bank with editable student-job-search defaults, then tighten each answer once instead of rewriting it for every application.
+              </p>
+            </div>
+            <Button
+              type="button"
+              className="gap-2"
+              disabled={seeding}
+              onClick={() => void handleSeedStarterAnswers()}
+            >
+              {seeding ? 'Seeding...' : 'Seed starter answers'}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
       <div className="grid gap-4 lg:grid-cols-[380px_minmax(0,1fr)]">
         <Card className="glass">
           <CardContent className="p-4">
@@ -109,6 +145,13 @@ export function AdminAnswerBank() {
         </Card>
 
         <div className="space-y-4">
+          {Object.keys(grouped).length === 0 && (
+            <Card className="glass">
+              <CardContent className="p-8 text-center text-sm text-muted-foreground">
+                No reusable answers yet. Seed the starter pack or add your own first answer on the left.
+              </CardContent>
+            </Card>
+          )}
           {Object.entries(grouped).map(([category, categoryAnswers]) => (
             <Card key={category} className="glass">
               <CardContent className="space-y-3 p-4">

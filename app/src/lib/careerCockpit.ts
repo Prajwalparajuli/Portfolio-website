@@ -17,7 +17,16 @@ export async function refreshHybridMatches(jobIds?: string[]) {
 export async function discoverWatchlist(input: { watchlistId?: string; careersUrl?: string }) {
   return invokeAdminFunction<{
     watchlistId: string | null
-    sourceHint: 'greenhouse' | 'lever' | 'generic'
+    sourceHint:
+      | 'greenhouse'
+      | 'lever'
+      | 'workday'
+      | 'ashby'
+      | 'smartrecruiters'
+      | 'icims'
+      | 'workable'
+      | 'jobvite'
+      | 'generic'
     boardOrSite: string
     snapshotJobs: Array<{ title: string; url: string; location: string }>
     notes: string
@@ -30,7 +39,14 @@ export async function runScheduledWatchlists(watchlistId?: string) {
     scheduledAt: string
     watchlistsProcessed: number
     watchlistsSynced: number
+    savedSearchesProcessed?: number
+    savedSearchesSynced?: number
     importedJobs: number
+    matchRefresh?: {
+      skipped: boolean
+      jobsProcessed: number
+      matchesUpdated: number
+    } | null
     failures: string[]
   }>('jobs-sync-scheduler', {
     watchlistId: watchlistId ?? '',

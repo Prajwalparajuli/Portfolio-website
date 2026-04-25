@@ -19,6 +19,11 @@ import { Input } from '@/components/ui/input'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { getAdminPath } from '@/lib/adminConfig'
+import { buildCareerAnalytics } from '@/lib/careerAnalytics'
+import {
+  getSuggestedCandidateAnswers,
+  seedDefaultCandidateAnswers,
+} from '@/lib/candidateAnswerBank'
 import {
   createApplicationShareLink,
   generateInterviewPrep,
@@ -26,29 +31,36 @@ import {
   revokeApplicationShareLink,
 } from '@/lib/careerCockpit'
 import { scoreJobFit } from '@/lib/jobMatching'
-import { generateCoverLetter } from '@/lib/resumeAi'
+import { generateCoverLetter, tailorResumeToJob } from '@/lib/resumeAi'
 import {
+  createResumeVariant,
   createContactTouchpoint,
   deleteApplication,
   deleteContactTouchpoint,
   getAllProjects,
   getApplications,
   getCandidateAnswers,
+  getCareerContacts,
+  getCompanyWatchlists,
   getContactTouchpoints,
   getInterviewPrepNotes,
   getJobMatches,
   getJobPostings,
   getProofOfWorkHighlights,
   getResumeWorkspace,
+  getSettings,
   getSkills,
   saveInterviewPrepNote,
   updateApplication,
+  updateCareerContact,
 } from '@/lib/supabase'
 import {
   ApplicationRecord,
   ApplicationShareLink,
   ApplicationStatus,
   CandidateAnswer,
+  CareerContact,
+  CompanyWatchlist,
   ContactTouchpoint,
   InterviewPrepNote,
   JobMatch,
@@ -57,7 +69,12 @@ import {
   Project,
   Skill,
 } from '@/types'
-import { ResumeVariant } from '@/types/resume'
+import {
+  type ResumeContent,
+  type ResumeExperienceSection,
+  type ResumeSummarySection,
+  ResumeVariant,
+} from '@/types/resume'
 
 const STATUS_OPTIONS: ApplicationStatus[] = [
   'saved',
@@ -70,20 +87,46 @@ const STATUS_OPTIONS: ApplicationStatus[] = [
   'archived',
 ]
 
-type ApplicationFilter = 'active' | 'ready' | 'applied' | 'closed' | 'all'
+type ApplicationFilter =
+  | 'needs_tailoring'
+  | 'ready_to_apply'
+  | 'applied'
+  | 'follow_up'
+  | 'closed'
+
+const APPLICATION_FILTER_OPTIONS: Array<{
+  value: ApplicationFilter
+  label: string
+}> = [
+  { value: 'needs_tailoring', label: 'Needs tailoring' },
+  { value: 'ready_to_apply', label: 'Ready to apply' },
+  { value: 'applied', label: 'Applied' },
+  { value: 'follow_up', label: 'Follow up' },
+  { value: 'closed', label: 'Closed' },
+]
 
 type TouchpointDraft = {
+  contact_id: string
   contact_name: string
   contact_role: string
   channel: ContactTouchpoint['channel']
+  touchpoint_kind: ContactTouchpoint['touchpoint_kind']
+  direction: ContactTouchpoint['direction']
+  subject: string
   note: string
+  next_follow_up_at: string
 }
 
 const EMPTY_TOUCHPOINT_DRAFT: TouchpointDraft = {
+  contact_id: '',
   contact_name: '',
   contact_role: '',
   channel: 'email',
+  touchpoint_kind: 'note',
+  direction: 'outbound',
+  subject: '',
   note: '',
+  next_follow_up_at: '',
 }
 
 export function AdminApplications() {
@@ -97,17 +140,20 @@ export function AdminApplications() {
   const [prepNotes, setPrepNotes] = useState<InterviewPrepNote[] | null>([])
   const [touchpoints, setTouchpoints] = useState<ContactTouchpoint[] | null>([])
   const [highlights, setHighlights] = useState<ProofOfWorkHighlight[] | null>([])
+  const [contacts, setContacts] = useState<CareerContact[] | null>([])
+  const [watchlists, setWatchlists] = useState<CompanyWatchlist[] | null>([])
   const [shareLinksByApplication, setShareLinksByApplication] = useState<Record<string, ApplicationShareLink[]>>({})
-  const [activeFilter, setActiveFilter] = useState<ApplicationFilter>('active')
+  const [activeFilter, setActiveFilter] = useState<ApplicationFilter>('needs_tailoring')
   const [savingId, setSavingId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
-  const [draftingCoverLetterId, setDraftingCoverLetterId] = useState<string | null>(null)
+  const [generatingPacketId, setGeneratingPacketId] = useState<string | null>(null)
   const [generatingPrepId, setGeneratingPrepId] = useState<string | null>(null)
   const [savingPrepId, setSavingPrepId] = useState<string | null>(null)
   const [creatingShareId, setCreatingShareId] = useState<string | null>(null)
   const [revokingShareId, setRevokingShareId] = useState<string | null>(null)
   const [addingTouchpointId, setAddingTouchpointId] = useState<string | null>(null)
   const [deletingTouchpointId, setDeletingTouchpointId] = useState<string | null>(null)
+  const [seedingAnswers, setSeedingAnswers] = useState(false)
   const [copiedValueId, setCopiedValueId] = useState<string | null>(null)
   const [coverLetterDrafts, setCoverLetterDrafts] = useState<Record<string, string>>({})
   const [prepNoteDrafts, setPrepNoteDrafts] = useState<Record<string, string>>({})
@@ -128,6 +174,8 @@ export function AdminApplications() {
         prepData,
         touchpointData,
         highlightData,
+        contactData,
+        watchlistData,
       ] = await Promise.all([
         getApplications(),
         getJobPostings(),
@@ -139,6 +187,8 @@ export function AdminApplications() {
         getInterviewPrepNotes(),
         getContactTouchpoints(),
         getProofOfWorkHighlights(),
+        getCareerContacts(),
+        getCompanyWatchlists(),
       ])
 
       if (!mounted) return
@@ -156,6 +206,8 @@ export function AdminApplications() {
       setPrepNotes(prepData)
       setTouchpoints(touchpointData)
       setHighlights(highlightData)
+      setContacts(contactData)
+      setWatchlists(watchlistData)
       setPrepNoteDrafts(
         Object.fromEntries((prepData ?? []).map((note) => [note.application_id, note.notes]))
       )
@@ -198,6 +250,14 @@ export function AdminApplications() {
     () => new Map((jobs ?? []).map((job) => [job.id, job])),
     [jobs]
   )
+  const contactMap = useMemo(
+    () => new Map((contacts ?? []).map((contact) => [contact.id, contact])),
+    [contacts]
+  )
+  const watchlistMap = useMemo(
+    () => new Map((watchlists ?? []).map((watchlist) => [watchlist.id, watchlist])),
+    [watchlists]
+  )
   const jobMatchMap = useMemo(
     () => new Map((jobMatches ?? []).map((match) => [match.job_posting_id, match])),
     [jobMatches]
@@ -219,51 +279,72 @@ export function AdminApplications() {
     }
     return next
   }, [touchpoints])
+  const suggestedAnswers = useMemo(
+    () => getSuggestedCandidateAnswers(candidateAnswers ?? []),
+    [candidateAnswers]
+  )
+  const today = startOfToday()
+
+  const applicationCounts = useMemo(() => {
+    const source = applications ?? []
+    return source.reduce<Record<ApplicationFilter, number>>(
+      (counts, application) => {
+        const bucket = getApplicationBucket(application, today)
+        counts[bucket] += 1
+        return counts
+      },
+      {
+        needs_tailoring: 0,
+        ready_to_apply: 0,
+        applied: 0,
+        follow_up: 0,
+        closed: 0,
+      }
+    )
+  }, [applications, today])
 
   const filteredApplications = useMemo(() => {
     const source = applications ?? []
-    return source.filter((application) => {
-      if (activeFilter === 'all') return true
-      if (activeFilter === 'active') {
-        return application.status === 'saved' || application.status === 'tailoring'
-      }
-      if (activeFilter === 'ready') {
-        return application.status === 'ready_to_apply' || application.status === 'interview'
-      }
-      if (activeFilter === 'applied') {
-        return application.status === 'applied' || application.status === 'offer'
-      }
-      return application.status === 'rejected' || application.status === 'archived'
-    })
-  }, [applications, activeFilter])
+    return [...source]
+      .filter((application) => getApplicationBucket(application, today) === activeFilter)
+      .sort((left, right) => compareApplicationsByBucket(activeFilter, left, right))
+  }, [activeFilter, applications, today])
 
   const stats = useMemo(() => {
-    const source = applications ?? []
-    const readyPackets = source.filter((application) => {
-      const hasResume = Boolean(application.resume_variant_id)
-      const hasCoverLetter = Boolean((coverLetterDrafts[application.id] ?? application.cover_letter).trim())
-      return hasResume && hasCoverLetter
-    }).length
-
     return [
-      { label: 'Tracked', value: source.length, tone: 'text-foreground' },
+      { label: 'Needs tailoring', value: applicationCounts.needs_tailoring, tone: 'text-amber-100' },
       {
-        label: 'Ready packets',
-        value: readyPackets,
+        label: 'Ready to apply',
+        value: applicationCounts.ready_to_apply,
         tone: 'text-emerald-300',
       },
       {
         label: 'Applied',
-        value: source.filter((item) => item.status === 'applied').length,
+        value: applicationCounts.applied,
         tone: 'text-blue-300',
       },
       {
-        label: 'Interviews+',
-        value: source.filter((item) => item.status === 'interview' || item.status === 'offer').length,
-        tone: 'text-amber-200',
+        label: 'Follow up',
+        value: applicationCounts.follow_up,
+        tone: 'text-cyan-200',
       },
+      { label: 'Closed', value: applicationCounts.closed, tone: 'text-muted-foreground' },
     ]
-  }, [applications, coverLetterDrafts])
+  }, [applicationCounts])
+
+  const analytics = useMemo(
+    () =>
+      buildCareerAnalytics({
+        jobs: jobs ?? [],
+        applications: applications ?? [],
+        savedSearches: [],
+        syncRuns: [],
+        watchlists: watchlists ?? [],
+        highlights: highlights ?? [],
+        window: '30d',
+      }),
+    [applications, highlights, jobs, watchlists]
+  )
 
   const handlePatch = async (
     id: string,
@@ -304,31 +385,102 @@ export function AdminApplications() {
     })
   }
 
-  const handleGenerateCoverLetter = async (
+  const handleSeedStarterAnswers = async () => {
+    if (!cockpitSupported) return candidateAnswers ?? []
+
+    setSeedingAnswers(true)
+    try {
+      const seeded = await seedDefaultCandidateAnswers()
+      setCandidateAnswers(seeded)
+      return seeded
+    } catch (error) {
+      console.error('Error seeding starter answers:', error)
+      return candidateAnswers ?? []
+    } finally {
+      setSeedingAnswers(false)
+    }
+  }
+
+  const handleGeneratePacket = async (
     application: ApplicationRecord,
     job: JobPosting | undefined,
-    variant: ResumeVariant | null
+    assignedVariant: ResumeVariant | null
   ) => {
-    if (!job || !variant) return
+    if (!job || !assignedVariant) return
 
-    setDraftingCoverLetterId(application.id)
+    setGeneratingPacketId(application.id)
     try {
-      const text = await generateCoverLetter(job, variant, skills)
+      if (cockpitSupported && (candidateAnswers?.length ?? 0) === 0) {
+        await handleSeedStarterAnswers()
+      }
+
+      let packetVariant = application.resume_variant_id ? assignedVariant : null
+      let resumeVariantId = application.resume_variant_id
+
+      if (!packetVariant) {
+        let nextContent = assignedVariant.content
+
+        if (job.description.trim()) {
+          try {
+            nextContent = await tailorResumeContentToJob(
+              assignedVariant.content,
+              job.description,
+              projects,
+              skills
+            )
+          } catch (error) {
+            console.error('Error tailoring resume content for packet generation:', error)
+          }
+        }
+
+        const settings = await getSettings()
+        const createdVariant = await createResumeVariant(
+          {
+            candidateProfileId: assignedVariant.candidateProfileId,
+            name: buildPacketVariantName(job),
+            variantType: 'tailored',
+            isPrimary: false,
+            sourceJobTitle: job.title,
+            sourceJobCompany: job.company,
+            sourceJobUrl: job.job_url,
+            notes: `Generated from Applications for ${job.company || 'selected company'}.`,
+            content: nextContent,
+          },
+          { settings }
+        )
+
+        if (createdVariant) {
+          packetVariant = createdVariant
+          resumeVariantId = createdVariant.id
+          setResumeVariants((current) => [createdVariant, ...current.filter((variant) => variant.id !== createdVariant.id)])
+        }
+      }
+
+      const nextCoverLetter = await generateCoverLetter(job, packetVariant ?? assignedVariant, skills)
       setCoverLetterDrafts((current) => ({
         ...current,
-        [application.id]: text,
+        [application.id]: nextCoverLetter,
       }))
-      await handlePatch(application.id, {
-        cover_letter: text,
-        status:
-          application.status === 'saved' || application.status === 'tailoring'
+
+      const nextStatus =
+        application.status === 'saved' || application.status === 'tailoring'
+          ? isCorePacketReady({
+              resumeVariantId,
+              coverLetter: nextCoverLetter,
+            })
             ? 'ready_to_apply'
-            : application.status,
+            : 'tailoring'
+          : application.status
+
+      await handlePatch(application.id, {
+        resume_variant_id: resumeVariantId,
+        cover_letter: nextCoverLetter,
+        status: nextStatus,
       })
     } catch (error) {
-      console.error('Error generating cover letter:', error)
+      console.error('Error generating packet:', error)
     } finally {
-      setDraftingCoverLetterId(null)
+      setGeneratingPacketId(null)
     }
   }
 
@@ -460,18 +612,48 @@ export function AdminApplications() {
 
     setAddingTouchpointId(application.id)
     try {
+      const linkedContact = draft.contact_id ? contactMap.get(draft.contact_id) ?? null : null
+      const companyWatchlistId = job?.watchlist_id ?? linkedContact?.company_watchlist_id ?? null
+      const companyWatchlist = companyWatchlistId ? watchlistMap.get(companyWatchlistId) ?? null : null
+      const occurredAt = new Date().toISOString()
       const created = await createContactTouchpoint({
         application_id: application.id,
-        company: job?.company ?? '',
-        contact_name: draft.contact_name.trim(),
-        contact_role: draft.contact_role.trim(),
+        contact_id: linkedContact?.id ?? null,
+        company_watchlist_id: companyWatchlistId,
+        company: job?.company ?? companyWatchlist?.company_name ?? linkedContact?.organization_name ?? '',
+        contact_name: linkedContact?.full_name ?? draft.contact_name.trim(),
+        contact_role: linkedContact?.role_title ?? draft.contact_role.trim(),
         channel: draft.channel,
+        touchpoint_kind: draft.touchpoint_kind,
+        direction: draft.direction,
+        subject: draft.subject.trim(),
         note: draft.note.trim(),
-        occurred_at: new Date().toISOString(),
+        occurred_at: occurredAt,
+        next_follow_up_at: draft.next_follow_up_at || null,
       })
 
       if (!created) return
       setTouchpoints((current) => [created, ...(current ?? [])])
+
+      if (linkedContact) {
+        const updatedContact = await updateCareerContact(linkedContact.id, {
+          last_contact_at: occurredAt,
+          next_follow_up_at: draft.next_follow_up_at || linkedContact.next_follow_up_at,
+          role_title: linkedContact.role_title || draft.contact_role.trim(),
+          organization_name:
+            linkedContact.organization_name ||
+            companyWatchlist?.company_name ||
+            job?.company ||
+            linkedContact.organization_name,
+        })
+
+        if (updatedContact) {
+          setContacts((current) =>
+            (current ?? []).map((entry) => (entry.id === updatedContact.id ? updatedContact : entry))
+          )
+        }
+      }
+
       setTouchpointDrafts((current) => ({
         ...current,
         [application.id]: EMPTY_TOUCHPOINT_DRAFT,
@@ -522,7 +704,7 @@ export function AdminApplications() {
         <div>
           <h1 className="text-3xl font-bold gradient-text">Applications</h1>
           <p className="text-muted-foreground mt-1">
-            Keep the pipeline tight: assign a resume variant, move status forward, and prep everything before the final apply click.
+            Generate the packet, move the application forward, and keep follow-up decisions visible instead of scattered across panels.
           </p>
         </div>
         <Link to={getAdminPath('jobs')}>
@@ -541,7 +723,28 @@ export function AdminApplications() {
         </Card>
       )}
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      {cockpitSupported && (candidateAnswers ?? []).length === 0 && (
+        <Card className="glass border border-emerald-400/20">
+          <CardContent className="flex flex-wrap items-center justify-between gap-4 p-4">
+            <div>
+              <p className="text-sm font-medium text-foreground">Starter answer pack missing</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Seed the answer bank once so work authorization, compensation, intro, and fit answers are ready when you generate packets.
+              </p>
+            </div>
+            <Button
+              type="button"
+              className="gap-2"
+              disabled={seedingAnswers}
+              onClick={() => void handleSeedStarterAnswers()}
+            >
+              {seedingAnswers ? 'Seeding...' : 'Seed starter answers'}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
         {stats.map((stat) => (
           <Card key={stat.label} className="glass">
             <CardContent className="p-4">
@@ -552,17 +755,48 @@ export function AdminApplications() {
         ))}
       </div>
 
+      <Card className="glass">
+        <CardContent className="space-y-4 p-4">
+          <div>
+            <p className="text-sm font-medium text-foreground">Conversion snapshot</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Packet completeness is now visible against actual interview conversion so you can stop guessing whether more polish is worth the time.
+            </p>
+          </div>
+          <div className="grid gap-3 md:grid-cols-3">
+            {analytics.packetRows.map((row) => (
+              <div key={row.id} className="rounded-xl border border-white/10 bg-black/20 p-4">
+                <p className="text-sm font-medium text-foreground">{row.label}</p>
+                <p className="mt-2 text-2xl font-semibold text-foreground">{row.applications}</p>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {row.applied} applied • {row.interviews} interviews • {Math.round(row.interview_rate * 100)}% interview rate
+                </p>
+              </div>
+            ))}
+          </div>
+          {analytics.insights
+            .filter((insight) => insight.surface === 'applications')
+            .slice(0, 1)
+            .map((insight) => (
+              <div key={insight.id} className="rounded-xl border border-white/10 bg-black/20 p-4">
+                <p className="text-sm font-medium text-foreground">{insight.title}</p>
+                <p className="mt-2 text-sm text-muted-foreground">{insight.body}</p>
+              </div>
+            ))}
+        </CardContent>
+      </Card>
+
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Tabs value={activeFilter} onValueChange={(value) => setActiveFilter(value as ApplicationFilter)}>
           <TabsList className="bg-black/30">
-            <TabsTrigger value="active">Active</TabsTrigger>
-            <TabsTrigger value="ready">Ready</TabsTrigger>
-            <TabsTrigger value="applied">Applied</TabsTrigger>
-            <TabsTrigger value="closed">Closed</TabsTrigger>
-            <TabsTrigger value="all">All</TabsTrigger>
+            {APPLICATION_FILTER_OPTIONS.map((option) => (
+              <TabsTrigger key={option.value} value={option.value}>
+                {option.label}
+              </TabsTrigger>
+            ))}
           </TabsList>
         </Tabs>
-        <p className="text-xs text-muted-foreground">Changes save immediately on select/date updates.</p>
+        <p className="text-xs text-muted-foreground">Generate packet first, then move the application between lanes.</p>
       </div>
 
       <div className="space-y-3">
@@ -584,6 +818,16 @@ export function AdminApplications() {
           const prep = prepMap.get(application.id)
           const prepNotesValue = prepNoteDrafts[application.id] ?? prep?.notes ?? ''
           const applicationTouchpoints = touchpointsByApplicationId.get(application.id) ?? []
+          const companyWatchlist = job?.watchlist_id ? watchlistMap.get(job.watchlist_id) ?? null : null
+          const contactOptions = (contacts ?? [])
+            .filter((contact) => {
+              if (companyWatchlist && contact.company_watchlist_id === companyWatchlist.id) return true
+              if (job?.company && contact.organization_name.trim().toLowerCase() === job.company.trim().toLowerCase()) {
+                return true
+              }
+              return false
+            })
+            .sort((left, right) => new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime())
           const applicationHighlights = (highlights ?? [])
             .filter((highlight) =>
               highlight.application_id === application.id || highlight.job_posting_id === application.job_posting_id
@@ -592,6 +836,17 @@ export function AdminApplications() {
           const shareLinks = shareLinksByApplication[application.id] ?? []
           const activeShareLinks = shareLinks.filter((link) => !link.revoked_at && !isExpired(link.expires_at))
           const touchpointDraft = touchpointDrafts[application.id] ?? EMPTY_TOUCHPOINT_DRAFT
+          const corePacketReady = isCorePacketReady({
+            resumeVariantId: application.resume_variant_id,
+            coverLetter: effectiveCoverLetter,
+          })
+          const polishedPacketReady = isPolishedPacketReady({
+            resumeVariantId: application.resume_variant_id,
+            coverLetter: effectiveCoverLetter,
+            highlightCount: applicationHighlights.length,
+            followUpAt: application.follow_up_at,
+          })
+          const followUpPrompt = buildFollowUpPrompt(application)
           const checklist = buildPacketChecklist({
             application,
             assignedVariant,
@@ -625,6 +880,18 @@ export function AdminApplications() {
                           Cover letter ready
                         </Badge>
                       )}
+                      <Badge
+                        variant="outline"
+                        className={
+                          polishedPacketReady
+                            ? 'border-emerald-400/20 text-emerald-200'
+                            : corePacketReady
+                              ? 'border-blue-400/20 text-blue-200'
+                              : 'border-amber-400/20 text-amber-100'
+                        }
+                      >
+                        {polishedPacketReady ? 'Polished packet' : corePacketReady ? 'Core packet ready' : 'Needs tailoring'}
+                      </Badge>
                       {persistedMatch ? (
                         <Badge variant="outline" className="border-amber-400/20 text-amber-100">
                           Fit {Math.round(persistedMatch.total_score)}
@@ -648,6 +915,26 @@ export function AdminApplications() {
                     <p className="mt-1 text-sm text-muted-foreground">
                       {[job?.company, job?.location].filter(Boolean).join(' • ') || 'Job removed or archived'}
                     </p>
+                    {(companyWatchlist || contactOptions.length > 0) && (
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                        {companyWatchlist && (
+                          <Link
+                            to={`${getAdminPath('watchlists')}?company=${encodeURIComponent(companyWatchlist.id)}`}
+                            className="hover:text-foreground"
+                          >
+                            Open company dossier
+                          </Link>
+                        )}
+                        {contactOptions.length > 0 && (
+                          <Link
+                            to={`${getAdminPath('contacts')}${contactOptions[0]?.id ? `?contact=${encodeURIComponent(contactOptions[0].id)}` : ''}`}
+                            className="hover:text-foreground"
+                          >
+                            Open linked contact
+                          </Link>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -764,6 +1051,15 @@ export function AdminApplications() {
                   </div>
 
                   <div className="flex flex-col gap-2">
+                    <Button
+                      type="button"
+                      className="w-full justify-start gap-2"
+                      disabled={!job || !assignedVariant || generatingPacketId === application.id}
+                      onClick={() => void handleGeneratePacket(application, job, assignedVariant)}
+                    >
+                      <Sparkles className="h-4 w-4" />
+                      {generatingPacketId === application.id ? 'Generating packet...' : 'Generate packet'}
+                    </Button>
                     <Link
                       to={`${getAdminPath('resume')}?job=${encodeURIComponent(application.job_posting_id)}&application=${encodeURIComponent(application.id)}&tab=tailor`}
                       onClick={() => {
@@ -774,34 +1070,25 @@ export function AdminApplications() {
                     >
                       <Button variant="outline" className="w-full justify-start gap-2">
                         <FileText className="h-4 w-4" />
-                        Tailor for this job
+                        Open packet workspace
                       </Button>
                     </Link>
                     <Button
                       type="button"
                       variant="outline"
                       className="w-full justify-start gap-2"
-                      disabled={!job || !assignedVariant || draftingCoverLetterId === application.id}
-                      onClick={() => handleGenerateCoverLetter(application, job, assignedVariant)}
-                    >
-                      <Sparkles className="h-4 w-4" />
-                      {draftingCoverLetterId === application.id ? 'Drafting cover letter...' : 'Draft cover letter'}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="w-full justify-start gap-2"
                       onClick={() =>
                         handlePatch(application.id, {
-                          follow_up_at: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000)
-                            .toISOString()
-                            .slice(0, 10),
+                          follow_up_at: followUpPrompt.suggestedDate,
                         })
                       }
                     >
                       <CalendarClock className="h-4 w-4" />
-                      Follow up in 3 days
+                      {followUpPrompt.label}
                     </Button>
+                    <p className="max-w-[220px] text-[11px] leading-5 text-muted-foreground">
+                      {followUpPrompt.description}
+                    </p>
                     <Button
                       type="button"
                       variant="ghost"
@@ -818,9 +1105,9 @@ export function AdminApplications() {
                 <div className="rounded-xl border border-white/10 bg-black/20 p-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
-                      <p className="text-sm font-medium text-foreground">Submission prep</p>
+                      <p className="text-sm font-medium text-foreground">Packet workspace</p>
                       <p className="text-xs text-muted-foreground">
-                        Packet readiness, matched proof, and reusable answers for this application.
+                        Packet readiness, matched proof, reusable answers, and the follow-up plan for this application.
                       </p>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
@@ -829,6 +1116,33 @@ export function AdminApplications() {
                           Lead with: {persistedMatch.best_evidence_label}
                         </Badge>
                       )}
+                    </div>
+                  </div>
+
+                  <div className="mt-4 rounded-lg border border-white/10 bg-black/30 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-medium text-foreground">Packet state</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {polishedPacketReady
+                            ? 'Core packet is ready, supporting proof is attached, and follow-up is planned.'
+                            : corePacketReady
+                              ? 'Resume and cover letter are ready. Add proof highlights and confirm the follow-up plan to polish it.'
+                              : 'Generate the packet or fill the missing core pieces below before you try to apply.'}
+                        </p>
+                      </div>
+                      <Badge
+                        variant="outline"
+                        className={
+                          polishedPacketReady
+                            ? 'border-emerald-400/20 text-emerald-200'
+                            : corePacketReady
+                              ? 'border-blue-400/20 text-blue-200'
+                              : 'border-amber-400/20 text-amber-100'
+                        }
+                      >
+                        {polishedPacketReady ? 'Polished packet' : corePacketReady ? 'Core packet ready' : 'Needs tailoring'}
+                      </Badge>
                     </div>
                   </div>
 
@@ -865,13 +1179,13 @@ export function AdminApplications() {
                   <div className="mt-4 grid gap-4 xl:grid-cols-2">
                     <div className="rounded-lg border border-white/10 bg-black/30 p-3">
                       <div className="flex items-center justify-between gap-3">
-                        <p className="text-sm font-medium text-foreground">Answer bank</p>
+                        <p className="text-sm font-medium text-foreground">Answer bank suggestions</p>
                         <Link to={getAdminPath('answers')}>
                           <Button variant="outline" size="sm">Manage</Button>
                         </Link>
                       </div>
                       <div className="mt-3 space-y-2">
-                        {(candidateAnswers ?? []).slice(0, 4).map((answer) => (
+                        {suggestedAnswers.map((answer) => (
                           <div key={answer.id} className="rounded-lg border border-white/10 bg-black/20 p-3">
                             <div className="flex items-center justify-between gap-3">
                               <div>
@@ -893,9 +1207,19 @@ export function AdminApplications() {
                           </div>
                         ))}
                         {(candidateAnswers ?? []).length === 0 && (
-                          <p className="text-sm text-muted-foreground">
-                            Add work authorization, compensation, and intro answers in the Answer Bank.
-                          </p>
+                          <div className="rounded-lg border border-emerald-400/20 bg-black/20 p-3">
+                            <p className="text-sm text-muted-foreground">
+                              Seed work authorization, compensation, intro, and fit answers once, then reuse them across packets.
+                            </p>
+                            <Button
+                              type="button"
+                              className="mt-3 gap-2"
+                              disabled={seedingAnswers}
+                              onClick={() => void handleSeedStarterAnswers()}
+                            >
+                              {seedingAnswers ? 'Seeding...' : 'Seed starter answers'}
+                            </Button>
+                          </div>
                         )}
                       </div>
                     </div>
@@ -1019,7 +1343,7 @@ export function AdminApplications() {
                             variant="outline"
                             size="sm"
                             className="gap-2"
-                            disabled={creatingShareId === application.id}
+                            disabled={creatingShareId === application.id || !corePacketReady}
                             onClick={() => void handleCreateShareLink(application, job, assignedVariant)}
                           >
                             <Link2 className="h-4 w-4" />
@@ -1071,7 +1395,9 @@ export function AdminApplications() {
                           ))}
                           {shareLinks.length === 0 && (
                             <p className="text-sm text-muted-foreground">
-                              Create a recruiter packet link once the packet is polished.
+                              {corePacketReady
+                                ? 'Create a recruiter packet link once you are comfortable sharing this packet externally.'
+                                : 'Generate the packet first so the share link points to a tailored resume and cover letter.'}
                             </p>
                           )}
                         </div>
@@ -1088,12 +1414,40 @@ export function AdminApplications() {
                                     <p className="text-sm font-medium text-foreground">
                                       {touchpoint.contact_name || 'Untitled contact'}
                                     </p>
+                                    <Badge variant="outline">{touchpoint.touchpoint_kind.replace(/_/g, ' ')}</Badge>
+                                    <Badge variant="outline">{touchpoint.direction}</Badge>
                                     <Badge variant="outline">{touchpoint.channel}</Badge>
                                   </div>
                                   <p className="mt-1 text-xs text-muted-foreground">
                                     {[touchpoint.contact_role, new Date(touchpoint.occurred_at).toLocaleString()].filter(Boolean).join(' • ')}
                                   </p>
+                                  {touchpoint.subject && (
+                                    <p className="mt-2 text-sm font-medium text-foreground">{touchpoint.subject}</p>
+                                  )}
                                   <p className="mt-2 text-sm text-muted-foreground">{touchpoint.note}</p>
+                                  {(touchpoint.contact_id || touchpoint.company_watchlist_id || touchpoint.next_follow_up_at) && (
+                                    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                      {touchpoint.contact_id && (
+                                        <Link
+                                          to={`${getAdminPath('contacts')}?contact=${encodeURIComponent(touchpoint.contact_id)}`}
+                                          className="hover:text-foreground"
+                                        >
+                                          Open contact
+                                        </Link>
+                                      )}
+                                      {touchpoint.company_watchlist_id && (
+                                        <Link
+                                          to={`${getAdminPath('watchlists')}?company=${encodeURIComponent(touchpoint.company_watchlist_id)}`}
+                                          className="hover:text-foreground"
+                                        >
+                                          Open company
+                                        </Link>
+                                      )}
+                                      {touchpoint.next_follow_up_at && (
+                                        <span>Next follow-up {touchpoint.next_follow_up_at}</span>
+                                      )}
+                                    </div>
+                                  )}
                                 </div>
                                 <Button
                                   type="button"
@@ -1111,6 +1465,33 @@ export function AdminApplications() {
                           ))}
 
                           <div className="rounded-lg border border-white/10 bg-black/30 p-3">
+                            {contactOptions.length > 0 && (
+                              <select
+                                value={touchpointDraft.contact_id}
+                                onChange={(event) => {
+                                  const nextContactId = event.target.value
+                                  const nextContact = nextContactId ? contactMap.get(nextContactId) ?? null : null
+                                  setTouchpointDrafts((current) => ({
+                                    ...current,
+                                    [application.id]: {
+                                      ...touchpointDraft,
+                                      contact_id: nextContactId,
+                                      contact_name: nextContact?.full_name ?? '',
+                                      contact_role: nextContact?.role_title ?? '',
+                                    },
+                                  }))
+                                }}
+                                className="flex h-10 w-full rounded-md border border-white/10 bg-black/40 px-3 py-2 text-sm"
+                              >
+                                <option value="">Choose linked contact (optional)</option>
+                                {contactOptions.map((contact) => (
+                                  <option key={contact.id} value={contact.id}>
+                                    {contact.full_name}
+                                    {contact.role_title ? ` - ${contact.role_title}` : ''}
+                                  </option>
+                                ))}
+                              </select>
+                            )}
                             <div className="grid gap-3 sm:grid-cols-2">
                               <Input
                                 value={touchpointDraft.contact_name}
@@ -1119,6 +1500,7 @@ export function AdminApplications() {
                                     ...current,
                                     [application.id]: {
                                       ...touchpointDraft,
+                                      contact_id: '',
                                       contact_name: event.target.value,
                                     },
                                   }))
@@ -1160,6 +1542,74 @@ export function AdminApplications() {
                               <option value="referral">Referral</option>
                               <option value="other">Other</option>
                             </select>
+                            <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                              <select
+                                value={touchpointDraft.touchpoint_kind}
+                                onChange={(event) =>
+                                  setTouchpointDrafts((current) => ({
+                                    ...current,
+                                    [application.id]: {
+                                      ...touchpointDraft,
+                                      touchpoint_kind: event.target.value as TouchpointDraft['touchpoint_kind'],
+                                    },
+                                  }))
+                                }
+                                className="flex h-10 w-full rounded-md border border-white/10 bg-black/40 px-3 py-2 text-sm"
+                              >
+                                <option value="note">Note</option>
+                                <option value="outreach">Outreach</option>
+                                <option value="reply">Reply</option>
+                                <option value="meeting">Meeting</option>
+                                <option value="informational_interview">Informational interview</option>
+                                <option value="referral">Referral</option>
+                                <option value="recruiter_screen">Recruiter screen</option>
+                                <option value="thank_you">Thank you</option>
+                              </select>
+                              <select
+                                value={touchpointDraft.direction}
+                                onChange={(event) =>
+                                  setTouchpointDrafts((current) => ({
+                                    ...current,
+                                    [application.id]: {
+                                      ...touchpointDraft,
+                                      direction: event.target.value as TouchpointDraft['direction'],
+                                    },
+                                  }))
+                                }
+                                className="flex h-10 w-full rounded-md border border-white/10 bg-black/40 px-3 py-2 text-sm"
+                              >
+                                <option value="outbound">Outbound</option>
+                                <option value="inbound">Inbound</option>
+                              </select>
+                              <Input
+                                type="date"
+                                value={touchpointDraft.next_follow_up_at}
+                                onChange={(event) =>
+                                  setTouchpointDrafts((current) => ({
+                                    ...current,
+                                    [application.id]: {
+                                      ...touchpointDraft,
+                                      next_follow_up_at: event.target.value,
+                                    },
+                                  }))
+                                }
+                                className="border-white/10 bg-black/40"
+                              />
+                            </div>
+                            <Input
+                              value={touchpointDraft.subject}
+                              onChange={(event) =>
+                                setTouchpointDrafts((current) => ({
+                                  ...current,
+                                  [application.id]: {
+                                    ...touchpointDraft,
+                                    subject: event.target.value,
+                                  },
+                                }))
+                              }
+                              placeholder="Subject or checkpoint"
+                              className="mt-3 border-white/10 bg-black/40"
+                            />
                             <Textarea
                               value={touchpointDraft.note}
                               onChange={(event) =>
@@ -1174,15 +1624,25 @@ export function AdminApplications() {
                               placeholder="What happened, what was promised, and what needs follow-up?"
                               className="mt-3 min-h-[100px] border-white/10 bg-black/40"
                             />
-                            <Button
-                              type="button"
-                              className="mt-3 gap-2"
-                              disabled={addingTouchpointId === application.id}
-                              onClick={() => void handleAddTouchpoint(application, job, touchpointDraft)}
-                            >
-                              <MessageSquare className="h-4 w-4" />
-                              {addingTouchpointId === application.id ? 'Saving...' : 'Add touchpoint'}
-                            </Button>
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              <Button
+                                type="button"
+                                className="gap-2"
+                                disabled={addingTouchpointId === application.id}
+                                onClick={() => void handleAddTouchpoint(application, job, touchpointDraft)}
+                              >
+                                <MessageSquare className="h-4 w-4" />
+                                {addingTouchpointId === application.id ? 'Saving...' : 'Add touchpoint'}
+                              </Button>
+                              {companyWatchlist && (
+                                <Link to={`${getAdminPath('contacts')}?company=${encodeURIComponent(companyWatchlist.id)}`}>
+                                  <Button type="button" variant="outline" className="gap-2">
+                                    <NotebookPen className="h-4 w-4" />
+                                    Open contacts
+                                  </Button>
+                                </Link>
+                              )}
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -1225,13 +1685,209 @@ export function AdminApplications() {
         {filteredApplications.length === 0 && (
           <Card className="glass">
             <CardContent className="p-8 text-center text-sm text-muted-foreground">
-              Nothing in this lane yet. Add a job from the Jobs page and track it here.
+              {emptyLaneMessage(activeFilter)}
             </CardContent>
           </Card>
         )}
       </div>
     </div>
   )
+}
+
+function getApplicationBucket(
+  application: ApplicationRecord,
+  today: Date
+): ApplicationFilter {
+  if (application.status === 'rejected' || application.status === 'archived') {
+    return 'closed'
+  }
+
+  if (
+    (application.status === 'applied' || application.status === 'interview' || application.status === 'offer') &&
+    application.follow_up_at &&
+    new Date(application.follow_up_at).getTime() <= today.getTime()
+  ) {
+    return 'follow_up'
+  }
+
+  if (application.status === 'applied' || application.status === 'interview' || application.status === 'offer') {
+    return 'applied'
+  }
+
+  if (
+    application.status === 'saved' ||
+    application.status === 'tailoring' ||
+    !isCorePacketReady({
+      resumeVariantId: application.resume_variant_id,
+      coverLetter: application.cover_letter,
+    })
+  ) {
+    return 'needs_tailoring'
+  }
+
+  return 'ready_to_apply'
+}
+
+function compareApplicationsByBucket(
+  bucket: ApplicationFilter,
+  left: ApplicationRecord,
+  right: ApplicationRecord
+): number {
+  if (bucket === 'follow_up') {
+    return new Date(left.follow_up_at ?? 0).getTime() - new Date(right.follow_up_at ?? 0).getTime()
+  }
+
+  if (bucket === 'applied') {
+    return new Date(right.applied_at ?? 0).getTime() - new Date(left.applied_at ?? 0).getTime()
+  }
+
+  if (bucket === 'closed') {
+    return new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime()
+  }
+
+  return new Date(left.updated_at).getTime() - new Date(right.updated_at).getTime()
+}
+
+function isCorePacketReady({
+  resumeVariantId,
+  coverLetter,
+}: {
+  resumeVariantId: string | null
+  coverLetter: string
+}): boolean {
+  return Boolean(resumeVariantId) && Boolean(coverLetter.trim())
+}
+
+function isPolishedPacketReady({
+  resumeVariantId,
+  coverLetter,
+  highlightCount,
+  followUpAt,
+}: {
+  resumeVariantId: string | null
+  coverLetter: string
+  highlightCount: number
+  followUpAt: string | null
+}): boolean {
+  return isCorePacketReady({ resumeVariantId, coverLetter }) && highlightCount > 0 && Boolean(followUpAt)
+}
+
+function buildFollowUpPrompt(application: ApplicationRecord): {
+  label: string
+  description: string
+  suggestedDate: string
+} {
+  if (application.status === 'interview') {
+    return {
+      label: 'Set 48-hour thank-you follow-up',
+      description: 'Interview-stage roles should usually have a quick thank-you or check-in deadline, not a vague later reminder.',
+      suggestedDate: addDaysFromToday(2),
+    }
+  }
+
+  if (application.status === 'offer') {
+    return {
+      label: 'Set offer decision follow-up',
+      description: 'Offers should have a clear response or clarification checkpoint on the calendar.',
+      suggestedDate: addDaysFromToday(3),
+    }
+  }
+
+  if (application.status === 'applied') {
+    return {
+      label: 'Set 1-week follow-up',
+      description: 'Applied roles should usually have a concrete follow-up date instead of relying on memory.',
+      suggestedDate: addDaysFromToday(7),
+    }
+  }
+
+  if (application.follow_up_at) {
+    return {
+      label: 'Move follow-up forward 3 days',
+      description: 'Keep a visible next-step date attached even before the application is fully closed out.',
+      suggestedDate: addDaysFromToday(3),
+    }
+  }
+
+  return {
+    label: 'Plan next follow-up',
+    description: 'Choose the next touchpoint now so the application does not fall into a silent backlog.',
+    suggestedDate: addDaysFromToday(3),
+  }
+}
+
+function buildPacketVariantName(job: JobPosting): string {
+  const parts = [job.title.trim(), job.company.trim()].filter(Boolean)
+  return parts.length > 0 ? `${parts.join(' @ ')} Packet Resume` : 'Tailored Packet Resume'
+}
+
+function emptyLaneMessage(filter: ApplicationFilter): string {
+  if (filter === 'needs_tailoring') {
+    return 'Nothing needs tailoring right now. Pull in another role from Discover if you want to build the next packet.'
+  }
+
+  if (filter === 'ready_to_apply') {
+    return 'No applications are packet-ready yet. Generate the packet or finish the missing pieces in the tailoring lane.'
+  }
+
+  if (filter === 'applied') {
+    return 'No applied applications are waiting without an overdue follow-up.'
+  }
+
+  if (filter === 'follow_up') {
+    return 'No follow-up items are due right now.'
+  }
+
+  return 'Nothing is closed yet. Rejected or archived applications will collect here.'
+}
+
+async function tailorResumeContentToJob(
+  content: ResumeContent,
+  jobDescription: string,
+  projects: Project[],
+  skills: Skill[]
+): Promise<ResumeContent> {
+  if (!jobDescription.trim()) return content
+
+  const summarySection = content.sections.find(
+    (section): section is ResumeSummarySection => section.type === 'summary'
+  )
+  const experienceSection = content.sections.find(
+    (section): section is ResumeExperienceSection => section.type === 'experience'
+  )
+
+  if (!experienceSection || experienceSection.items.length === 0) return content
+
+  const { summary, bullets } = await tailorResumeToJob(
+    jobDescription,
+    summarySection?.text ?? '',
+    experienceSection.items,
+    projects,
+    skills
+  )
+
+  return {
+    ...content,
+    sections: content.sections.map((section) => {
+      if (section.type === 'summary') {
+        return {
+          ...section,
+          text: summary || section.text,
+        }
+      }
+
+      if (section.type === 'experience') {
+        return {
+          ...section,
+          items: section.items.map((item, index) =>
+            bullets[index] ? { ...item, bullets: bullets[index] } : item
+          ),
+        }
+      }
+
+      return section
+    }),
+  }
 }
 
 function statusBadgeClassName(status: ApplicationStatus): string {
@@ -1288,8 +1944,11 @@ function buildPacketChecklist({
   return [
     {
       label: 'Resume variant',
-      ready: Boolean(assignedVariant || application.resume_variant_id),
-      detail: assignedVariant ? assignedVariant.name : 'Attach a role-specific resume.',
+      ready: Boolean(application.resume_variant_id),
+      detail:
+        assignedVariant && application.resume_variant_id
+          ? assignedVariant.name
+          : 'Attach a role-specific resume.',
     },
     {
       label: 'Cover letter',
@@ -1364,4 +2023,14 @@ async function copyText(
 function truncateText(value: string, maxLength: number) {
   if (value.length <= maxLength) return value
   return `${value.slice(0, Math.max(0, maxLength - 3)).trimEnd()}...`
+}
+
+function startOfToday() {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  return today
+}
+
+function addDaysFromToday(days: number) {
+  return new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
 }

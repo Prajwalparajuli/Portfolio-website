@@ -33,3 +33,10 @@ output/
 # TypeScript
 *.tsbuildinfo
 app/*.tsbuildinfo
+
+# Local planning / sensitive working docs
+CAREER_COCKPIT_TRACKER.md
+CAREER_COCKPIT_MASTER_PLAN.md
+Critique.txt
+app/artifacts/
+supabase/.temp/

@@ -1,326 +1,236 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import { motion, useScroll, useTransform, useSpring } from 'framer-motion'
-import { PortfolioSettings } from '@/types'
-import { Mail, ArrowDown } from 'lucide-react'
+import { motion } from 'framer-motion'
+import { PortfolioSettings, Project } from '@/types'
+import { ArrowRight, FileDown, Mail, MapPin, User, GraduationCap } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Link } from 'react-router-dom'
 
 interface HeroSectionProps {
   settings: PortfolioSettings
+  projectCount: number
+  projects?: Project[]
 }
 
-const CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*'
+/** Base skills always shown even with zero projects */
+const BASE_SKILLS = [
+  'Python', 'PyTorch', 'Scikit-learn', 'SQL', 'Computer Vision', 'NLP',
+  'Deep Learning', 'Data Pipelines', 'Recommendation Systems',
+]
 
-function useTextScramble(target: string, duration = 1500, delay = 0) {
-  const [display, setDisplay] = useState('')
-  const [done, setDone] = useState(false)
-  const frameRef = useRef<number>(0)
+/** Merge base skills with project tags, deduped case-insensitively, base first */
+function getHeroSkills(projects: Project[]): string[] {
+  const seen = new Set<string>()
+  const result: string[] = []
 
-  useEffect(() => {
-    if (!target) { setDisplay(''); setDone(true); return }
-    
-    const timeout = setTimeout(() => {
-      setDone(false)
-      const len = target.length
-      const startTime = performance.now()
-
-      const tick = (now: number) => {
-        const elapsed = now - startTime
-        const progress = Math.min(elapsed / duration, 1)
-        const revealed = Math.floor(progress * len)
-        let result = ''
-        for (let i = 0; i < len; i++) {
-          if (target[i] === ' ') { result += ' '; continue }
-          result += i < revealed ? target[i] : CHARS[Math.floor(Math.random() * CHARS.length)]
-        }
-        setDisplay(result)
-        if (progress < 1) {
-          frameRef.current = requestAnimationFrame(tick)
-        } else {
-          setDisplay(target)
-          setDone(true)
-        }
-      }
-      frameRef.current = requestAnimationFrame(tick)
-    }, delay)
-    
-    return () => {
-      clearTimeout(timeout)
-      cancelAnimationFrame(frameRef.current)
+  // Add base skills first
+  for (const skill of BASE_SKILLS) {
+    const key = skill.toLowerCase()
+    if (!seen.has(key)) {
+      seen.add(key)
+      result.push(skill)
     }
-  }, [target, duration, delay])
+  }
 
-  return { display, done }
+  // Add project tags that aren't already in the base
+  for (const project of projects) {
+    for (const tag of project.tags) {
+      const normalized = tag.trim()
+      const key = normalized.toLowerCase()
+      if (normalized && !seen.has(key)) {
+        seen.add(key)
+        result.push(normalized)
+      }
+    }
+  }
+
+  return result
 }
 
-// Magnetic button effect
-function MagneticButton({ children, href, className, external = false }: {
-  children: React.ReactNode
-  href: string
-  className?: string
-  external?: boolean
-}) {
-  const buttonRef = useRef<HTMLAnchorElement>(null)
-  const [position, setPosition] = useState({ x: 0, y: 0 })
-
-  const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    if (!buttonRef.current) return
-    const rect = buttonRef.current.getBoundingClientRect()
-    const centerX = rect.left + rect.width / 2
-    const centerY = rect.top + rect.height / 2
-    const distX = (e.clientX - centerX) * 0.15
-    const distY = (e.clientY - centerY) * 0.15
-    setPosition({ x: distX, y: distY })
-  }, [])
-
-  const handleMouseLeave = useCallback(() => {
-    setPosition({ x: 0, y: 0 })
-  }, [])
-
-  const Component = external ? 'a' : motion.a
-  const props = external 
-    ? { href, target: '_blank', rel: 'noopener noreferrer' } 
-    : { href }
-
-  return (
-    <Component
-      ref={buttonRef}
-      onMouseMove={handleMouseMove}
-      onMouseLeave={handleMouseLeave}
-      animate={{ x: position.x, y: position.y }}
-      transition={{ type: 'spring', stiffness: 150, damping: 15, mass: 0.1 }}
-      className={className}
-      {...props}
-    >
-      {children}
-    </Component>
-  )
+function cleanTitle(title: string): string {
+  if (title.includes('-') && !title.includes(' ') && title.split('-').length > 2) {
+    return title.replace(/-/g, ' ')
+  }
+  return title
 }
 
-function TextReveal({ children, delay = 0, className }: {
-  children: string
-  delay?: number
-  className?: string
-}) {
-  return (
-    <motion.span
-      initial={{ opacity: 0, y: 40, clipPath: 'inset(100% 0 0 0)' }}
-      animate={{ opacity: 1, y: 0, clipPath: 'inset(0 0 0 0)' }}
-      transition={{
-        duration: 0.8,
-        delay,
-        ease: [0.22, 1, 0.36, 1]
-      }}
-      className={`inline-block ${className}`}
-    >
-      {children}
-    </motion.span>
-  )
-}
+export function HeroSection({ settings, projects = [] }: HeroSectionProps) {
+  const statusParts = [
+    settings.now_line?.trim() || 'Open to full-time Data & ML roles',
+    settings.location?.trim() ? `Based in ${settings.location.trim()}` : '',
+  ].filter(Boolean)
 
-// Abstract Constellation Background - lightweight
-function ConstellationBackground({ scrollProgress }: { scrollProgress: ReturnType<typeof useScroll>["scrollYProgress"] }) {
-  // Generate static nodes
-  const nodes = useMemo(() => {
-    return Array.from({ length: 25 }, (_, i) => ({
-      id: i,
-      x: 15 + (i % 5) * 15 + Math.random() * 5,
-      y: 20 + Math.floor(i / 5) * 15 + Math.random() * 5,
-      size: Math.random() * 2 + 1,
-      delay: Math.random() * 1.5,
-      layer: Math.random() > 0.6 ? 'front' : 'back',
-    }))
-  }, [])
+  // Sort by updated_at desc (latest first), take top 3
+  const featuredProjects = [...projects]
+    .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+    .slice(0, 3)
 
-  // Pre-calculate connections
-  const connections = useMemo(() => {
-    const conns: { from: number; to: number }[] = []
-    nodes.forEach((node, i) => {
-      nodes.forEach((other, j) => {
-        if (i >= j) return
-        const dist = Math.sqrt(
-          Math.pow(node.x - other.x, 2) + Math.pow(node.y - other.y, 2)
-        )
-        if (dist < 20 && Math.random() > 0.4) {
-          conns.push({ from: i, to: j })
-        }
-      })
-    })
-    return conns
-  }, [nodes])
+  const photoUrl = settings.photo_url
 
-  const yParallax = useTransform(scrollProgress, [0, 1], [0, -60])
-  const springY = useSpring(yParallax, { stiffness: 30, damping: 20 })
+  // Dynamic skills: base set + project tags
+  const heroSkills = getHeroSkills(projects)
+
+  // Pull education from settings if available
+  const topCredential = settings.education?.[0]
 
   return (
-    <motion.div className="absolute inset-0 overflow-hidden pointer-events-none" style={{ y: springY }}>
-      <svg className="w-full h-full" preserveAspectRatio="none">
-        {/* Connection lines */}
-        {connections.map((conn, i) => {
-          const from = nodes[conn.from]
-          const to = nodes[conn.to]
-          return (
-            <motion.line
-              key={`line-${i}`}
-              x1={`${from.x}%`}
-              y1={`${from.y}%`}
-              x2={`${to.x}%`}
-              y2={`${to.y}%`}
-              stroke="hsla(var(--accent-hue), var(--accent-saturation), var(--accent-lightness), 0.12)"
-              strokeWidth="0.5"
-              initial={{ pathLength: 0, opacity: 0 }}
-              animate={{ pathLength: 1, opacity: 0.25 }}
-              transition={{ duration: 1.5, delay: from.delay * 0.5, ease: "easeOut" }}
-            />
-          )
-        })}
-
-        {/* Nodes */}
-        {nodes.map((node) => (
-          <motion.circle
-            key={`node-${node.id}`}
-            cx={`${node.x}%`}
-            cy={`${node.y}%`}
-            r={node.size}
-            fill={node.layer === 'front' ? 'hsla(var(--accent-hue), 70%, 60%, 0.5)' : 'hsla(var(--accent-hue), 50%, 50%, 0.25)'}
-            initial={{ scale: 0, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            transition={{ duration: 0.5, delay: node.delay * 0.3, ease: [0.34, 1.56, 0.64, 1] }}
-          />
-        ))}
-      </svg>
-    </motion.div>
-  )
-}
-
-// Flowing Data Particles - reduced count
-function DataFlow({ scrollProgress }: { scrollProgress: ReturnType<typeof useScroll>["scrollYProgress"] }) {
-  const particles = useMemo(() => {
-    return Array.from({ length: 8 }, (_, i) => ({
-      id: i,
-      startX: 15 + i * 10,
-      delay: i * 0.8,
-      duration: 10 + Math.random() * 4,
-    }))
-  }, [])
-
-  const yOffset = useTransform(scrollProgress, [0, 1], [0, -30])
-  const springY = useSpring(yOffset, { stiffness: 40, damping: 25 })
-
-  return (
-    <motion.div className="absolute inset-0 overflow-hidden pointer-events-none" style={{ y: springY }}>
-      {particles.map((p) => (
+    <section className="relative overflow-hidden px-4 py-14 sm:px-6 sm:py-16 lg:px-8 lg:py-20">
+      <div className="mx-auto max-w-7xl">
+        {/* Top row: Photo + Identity */}
         <motion.div
-          key={p.id}
-          className="absolute w-1 h-1 rounded-full bg-accent/20"
-          style={{
-            left: `${p.startX}%`,
-            bottom: '-20px',
-          }}
-          animate={{
-            y: [0, -1200],
-            opacity: [0, 0.5, 0],
-          }}
-          transition={{
-            duration: p.duration,
-            delay: p.delay,
-            repeat: Infinity,
-            ease: "linear",
-          }}
-        />
-      ))}
-    </motion.div>
-  )
-}
-
-export function HeroSection({ settings }: HeroSectionProps) {
-  const { display: scrambledTitle, done: scrambleDone } = useTextScramble(settings.site_title, 1800, 400)
-  const containerRef = useRef<HTMLElement>(null)
-  const { scrollYProgress } = useScroll({
-    target: containerRef,
-    offset: ["start start", "end start"]
-  })
-
-  return (
-    <section ref={containerRef} className="min-h-screen flex flex-col items-center justify-center px-4 sm:px-6 lg:px-8 relative overflow-hidden">
-      {/* Lightweight abstract background */}
-      <div className="absolute inset-0 overflow-hidden">
-        <ConstellationBackground scrollProgress={scrollYProgress} />
-        <DataFlow scrollProgress={scrollYProgress} />
-      </div>
-
-      <div className="text-center max-w-4xl mx-auto relative z-10">
-        {/* Main heading with text reveal animation */}
-        <h1 className="font-display font-semibold text-6xl sm:text-7xl lg:text-8xl xl:text-9xl tracking-tight mb-8 text-foreground">
-          <TextReveal delay={0.2} className={scrambleDone ? '' : 'font-mono'}>
-            {scrambledTitle}
-          </TextReveal>
-        </h1>
-
-        {/* Meaningful tagline instead of generic bio */}
-        <motion.div
-          initial={{ opacity: 0, y: 30 }}
+          initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8, delay: 0.6, ease: [0.22, 1, 0.36, 1] }}
-          className="mb-12"
+          transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+          className="flex flex-col gap-5 sm:flex-row sm:items-center sm:gap-7"
         >
-          <p className="text-lg sm:text-xl text-muted-foreground max-w-2xl mx-auto leading-relaxed mb-6">
-            Turning complex data into actionable insights. I build machine learning systems 
-            that help businesses make smarter decisions.
-          </p>
-          <div className="flex flex-wrap items-center justify-center gap-4 text-sm text-muted-foreground/70 font-mono">
-            <span>Machine Learning</span>
-            <span className="w-1 h-1 rounded-full bg-accent/50" />
-            <span>Data Engineering</span>
-            <span className="w-1 h-1 rounded-full bg-accent/50" />
-            <span>Statistical Analysis</span>
+          <div className="relative flex-shrink-0">
+            {photoUrl ? (
+              <img
+                src={photoUrl}
+                alt="Prajwal Parajuli"
+                className="h-28 w-28 rounded-2xl border-2 border-white/10 object-cover shadow-2xl sm:h-32 sm:w-32"
+              />
+            ) : (
+              <div className="flex h-28 w-28 items-center justify-center rounded-2xl border-2 border-white/10 bg-white/[0.03] shadow-2xl sm:h-32 sm:w-32">
+                <User className="h-12 w-12 text-muted-foreground/30" />
+              </div>
+            )}
+            <div className="absolute -bottom-1.5 -right-1.5 flex items-center gap-1 rounded-full border border-background bg-emerald-500/20 px-2 py-0.5 text-[10px] font-medium text-emerald-400 backdrop-blur-sm">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              Available
+            </div>
+          </div>
+
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+              Data Scientist & AI Engineer
+            </p>
+            <h1 className="mt-1 font-display text-4xl font-semibold tracking-tight text-foreground sm:text-5xl lg:text-6xl">
+              Prajwal Parajuli
+            </h1>
+            {statusParts.length > 0 && (
+              <div className="mt-2 flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
+                {statusParts.map((part) => (
+                  <span key={part} className="inline-flex items-center gap-1.5">
+                    <MapPin className="h-3.5 w-3.5 text-accent" />
+                    {part}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
         </motion.div>
 
-        {/* CTA Buttons with magnetic hover effect */}
+        {/* Main content row */}
         <motion.div
-          initial={{ opacity: 0, y: 30 }}
+          initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8, delay: 0.8, ease: [0.22, 1, 0.36, 1] }}
-          className="flex flex-col sm:flex-row items-center justify-center gap-4"
+          transition={{ duration: 0.5, delay: 0.08, ease: [0.22, 1, 0.36, 1] }}
+          className="mt-8 grid gap-8 lg:grid-cols-[1fr_340px] lg:items-start lg:gap-12"
         >
-          <MagneticButton
-            href={`mailto:${settings.contact_email}`}
-            className="inline-flex items-center gap-2 px-8 py-4 rounded-full bg-foreground text-background font-medium hover:opacity-90 transition-opacity group"
-          >
-            <Mail className="h-4 w-4 transition-transform group-hover:scale-110" />
-            Get in Touch
-          </MagneticButton>
-          
-          {settings.resume_url && (
-            <MagneticButton
-              href={settings.resume_url}
-              external
-              className="inline-flex items-center gap-2 px-8 py-4 rounded-full glass font-medium hover:glass-strong transition-all text-foreground group"
-            >
-              <span className="relative">
-                View Resume
-                <span className="absolute bottom-0 left-0 w-0 h-px bg-foreground group-hover:w-full transition-all duration-300" />
-              </span>
-            </MagneticButton>
+          {/* Left: Copy + Tech + CTAs */}
+          <div>
+            <p className="max-w-2xl text-lg leading-7 text-foreground/85 sm:text-xl sm:leading-8">
+              I learn best by building. A new concept becomes a project, a project
+              turns into a pipeline, and the good ones find their way to production
+              — from ML research to recommendation engines and everything in between.
+            </p>
+
+            {/* CTAs */}
+            <div className="mt-6 flex flex-wrap items-center gap-3">
+              <Button asChild size="lg" className="rounded-full">
+                <a href="#work">
+                  View my work
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </a>
+              </Button>
+
+              <Button asChild size="lg" variant="outline" className="rounded-full">
+                <Link to="/resume">
+                  <FileDown className="mr-2 h-4 w-4" />
+                  Resume
+                </Link>
+              </Button>
+
+              <Button asChild size="lg" variant="ghost" className="rounded-full">
+                <a href={`mailto:${settings.contact_email}`}>
+                  <Mail className="mr-2 h-4 w-4" />
+                  Email me
+                </a>
+              </Button>
+            </div>
+
+            {/* Tech pills — dynamic from base + project tags */}
+            <div className="mt-6 flex flex-wrap gap-2">
+              {heroSkills.map((tech) => (
+                <span
+                  key={tech}
+                  className="inline-flex items-center rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-xs text-muted-foreground"
+                >
+                  {tech}
+                </span>
+              ))}
+            </div>
+
+            {/* Education credential — adds weight */}
+            {topCredential && (
+              <div className="mt-5 flex items-center gap-2 text-sm text-muted-foreground">
+                <GraduationCap className="h-4 w-4 text-accent/70" />
+                <span>
+                  {topCredential.title}
+                  {topCredential.issuer ? ` — ${topCredential.issuer}` : ''}
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Right: Featured projects — aligned to top */}
+          {featuredProjects.length > 0 && (
+            <div className="space-y-2.5">
+              <p className="text-xs font-semibold uppercase tracking-[0.15em] text-muted-foreground">
+                Featured Work
+              </p>
+              {featuredProjects.map((project, i) => (
+                <motion.div
+                  key={project.id}
+                  initial={{ opacity: 0, x: 12 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ duration: 0.3, delay: 0.2 + i * 0.08 }}
+                >
+                  <a
+                    href="#work"
+                    onClick={(e) => {
+                      e.preventDefault()
+                      const el = document.getElementById('work')
+                      if (el) el.scrollIntoView({ behavior: 'smooth' })
+                    }}
+                    className="group flex items-center gap-3 rounded-xl border border-white/[0.08] bg-white/[0.02] px-3.5 py-3 transition-all hover:border-white/15 hover:bg-white/[0.05]"
+                  >
+                    {project.cover_image ? (
+                      <img
+                        src={project.cover_image}
+                        alt=""
+                        className="h-10 w-10 rounded-lg object-cover flex-shrink-0"
+                      />
+                    ) : (
+                      <div className="h-10 w-10 rounded-lg bg-accent/15 flex-shrink-0" />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-foreground group-hover:text-accent transition-colors leading-snug">
+                        {cleanTitle(project.title)}
+                      </p>
+                      {project.tags.length > 0 && (
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          {project.tags.slice(0, 3).join(' · ')}
+                        </p>
+                      )}
+                    </div>
+                    <ArrowRight className="h-3.5 w-3.5 text-muted-foreground opacity-0 transition-all group-hover:opacity-100 group-hover:translate-x-0.5 flex-shrink-0" />
+                  </a>
+                </motion.div>
+              ))}
+            </div>
           )}
         </motion.div>
       </div>
-
-      {/* Scroll indicator with bounce animation */}
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 1, delay: 1.2 }}
-        className="absolute bottom-12 left-1/2 -translate-x-1/2"
-      >
-        <motion.div
-          animate={{ y: [0, 8, 0] }}
-          transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-          className="flex flex-col items-center gap-2 text-muted-foreground/70"
-        >
-          <span className="text-xs font-mono uppercase tracking-widest">Scroll</span>
-          <ArrowDown className="h-4 w-4" />
-        </motion.div>
-      </motion.div>
     </section>
   )
 }

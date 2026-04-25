@@ -1,9 +1,9 @@
-import { Routes, Route } from 'react-router-dom'
+import { Routes, Route, Navigate } from 'react-router-dom'
 import { PublicLayout } from './app/PublicLayout'
 import { AdminLayout } from './app/AdminLayout'
 import { HomePage } from './app/pages/HomePage'
 import { ProjectPage } from './app/pages/ProjectPage'
-import { StatsPage } from './app/pages/StatsPage'
+import { ResumePage } from './app/pages/ResumePage'
 import { RecruiterPacketPage } from './app/pages/RecruiterPacketPage'
 import { AuthProvider } from './components/auth/AuthProvider'
 import { ErrorBoundary } from './components/ErrorBoundary'
@@ -12,6 +12,7 @@ import {
   AdminActivityRoute,
   AdminAnswerBankRoute,
   AdminApplicationsRoute,
+  AdminContactsRoute,
   AdminDashboardRoute,
   AdminInboxRoute,
   AdminJobsRoute,
@@ -36,13 +37,14 @@ function App() {
           <Route path="/" element={<PublicLayout />}>
             <Route index element={<HomePage />} />
             <Route path="projects/:slug" element={<ProjectPage />} />
-            <Route path="stats" element={<StatsPage />} />
+            <Route path="resume" element={<ResumePage />} />
             <Route path="packet/:token" element={<RecruiterPacketPage />} />
           </Route>
 
           {/* Admin Routes - path from VITE_ADMIN_PATH (default: /admin) */}
           <Route path={adminBase} element={<AdminLayout />}>
-            <Route index element={<AdminDashboardRoute />} />
+            <Route index element={<Navigate to="jobs" replace />} />
+            <Route path="today" element={<AdminDashboardRoute />} />
             <Route path="projects" element={<AdminProjectsRoute />} />
             <Route path="projects/new" element={<AdminProjectFormRoute />} />
             <Route path="projects/:id/edit" element={<AdminProjectFormRoute />} />
@@ -51,6 +53,7 @@ function App() {
             <Route path="activity" element={<AdminActivityRoute />} />
             <Route path="jobs" element={<AdminJobsRoute />} />
             <Route path="watchlists" element={<AdminWatchlistsRoute />} />
+            <Route path="contacts" element={<AdminContactsRoute />} />
             <Route path="applications" element={<AdminApplicationsRoute />} />
             <Route path="answers" element={<AdminAnswerBankRoute />} />
             <Route path="inbox" element={<AdminInboxRoute />} />

@@ -1,11 +1,7 @@
 import { Outlet, useLocation } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { AnimatedBackground } from '@/components/public/AnimatedBackground'
-import { FloatingDock } from '@/components/public/FloatingDock'
-import { BackToTop } from '@/components/public/BackToTop'
-import { KonamiEgg } from '@/components/public/KonamiEgg'
-import { ScrollProgress } from '@/components/public/ScrollProgress'
-import { CustomCursor } from '@/components/public/CustomCursor'
+import { PublicHeader } from '@/components/public/PublicHeader'
 import { useEffect, useState } from 'react'
 import { PortfolioSettings } from '@/types'
 import { getSettings } from '@/lib/supabase'
@@ -19,11 +15,11 @@ const DEFAULT_SETTINGS: PortfolioSettings = {
   bio: 'Data Scientist and AI Engineer passionate about building intelligent systems that solve real-world problems.',
   contact_email: contactEmailDefault,
   resume_url: '',
-  linkedin_url: '',
-  github_url: '',
+  linkedin_url: 'https://www.linkedin.com/in/prajwal-parajuli',
+  github_url: 'https://github.com/Prajwalparajuli',
   twitter_url: '',
-  site_title: 'AI Portfolio',
-  site_description: 'Portfolio of a Data Scientist & AI Engineer',
+  site_title: 'Prajwal Parajuli',
+  site_description: 'Data Scientist & AI Engineer — Machine Learning, Computer Vision, and Recommendation Systems',
   now_line: '',
   location: '',
   education: [],
@@ -61,7 +57,7 @@ export function PublicLayout() {
   }
 
   return (
-    <div className="min-h-screen relative cursor-none">
+    <div className="min-h-screen relative">
       {/* Skip to content link - accessibility */}
       <a
         href="#main-content"
@@ -74,10 +70,10 @@ export function PublicLayout() {
       </a>
 
       <AnimatedBackground />
-      <ScrollProgress />
-      <CustomCursor />
 
       <div className="relative z-10 min-h-screen flex flex-col">
+        <PublicHeader settings={settings} />
+
         <AnimatePresence mode="wait">
           <motion.div
             key={location.pathname}
@@ -99,14 +95,7 @@ export function PublicLayout() {
             </main>
           </motion.div>
         </AnimatePresence>
-        
-        <div className="no-print fixed bottom-6 left-0 right-0 z-50 flex justify-center pointer-events-none">
-          <FloatingDock settings={settings} />
-        </div>
       </div>
-      
-      <BackToTop />
-      <KonamiEgg />
     </div>
   )
 }

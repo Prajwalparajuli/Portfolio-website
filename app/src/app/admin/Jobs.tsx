@@ -23,6 +23,7 @@ import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { getAdminPath } from '@/lib/adminConfig'
+import { buildCareerAnalytics } from '@/lib/careerAnalytics'
 import { searchExternalJobs } from '@/lib/jobSearch'
 import { refreshHybridMatches } from '@/lib/careerCockpit'
 import { scoreJobFit } from '@/lib/jobMatching'
@@ -33,6 +34,7 @@ import {
   deleteSavedJobSearch,
   getAllProjects,
   getApplications,
+  getCompanyWatchlists,
   getJobMatches,
   getJobSyncRuns,
   getJobPostings,
@@ -67,6 +69,8 @@ const EMPTY_JOB_FORM: JobPostingFormData = {
   source: 'manual',
   external_id: '',
   watchlist_id: null,
+  saved_job_search_id: null,
+  query_label: '',
   title: '',
   company: '',
   location: '',
@@ -82,7 +86,7 @@ const EMPTY_JOB_FORM: JobPostingFormData = {
 }
 
 const EMPTY_SEARCH_FORM: ExternalJobSearchRequest = {
-  source: 'usajobs',
+  source: 'google_jobs',
   query: '',
   location: '',
   boardOrSite: '',
@@ -93,7 +97,7 @@ const EMPTY_SEARCH_FORM: ExternalJobSearchRequest = {
 type JobFilter = 'all' | 'strong' | 'review' | 'tracked'
 type JobsMode = 'saved' | 'search'
 const JOB_FORM_DRAFT_KEY = 'admin-jobs-manual-draft-v1'
-const JOB_SEARCH_DRAFT_KEY = 'admin-jobs-search-draft-v1'
+const JOB_SEARCH_DRAFT_KEY = 'admin-jobs-search-draft-v2'
 
 export function AdminJobs() {
   const navigate = useNavigate()
@@ -102,12 +106,15 @@ export function AdminJobs() {
   const [savedSearches, setSavedSearches] = useState<SavedJobSearch[] | null>([])
   const [syncRuns, setSyncRuns] = useState<JobSyncRun[] | null>([])
   const [jobMatches, setJobMatches] = useState<JobMatch[] | null>([])
+  const [watchlists, setWatchlists] = useState<Awaited<ReturnType<typeof getCompanyWatchlists>>>([])
   const [skills, setSkills] = useState<Skill[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [candidateProfile, setCandidateProfile] = useState<CandidateProfile | null>(null)
   const [resumeVariants, setResumeVariants] = useState<ResumeVariant[]>([])
   const [activeFilter, setActiveFilter] = useState<JobFilter>('all')
-  const [panelMode, setPanelMode] = useState<JobsMode>('saved')
+  const [panelMode, setPanelMode] = useState<JobsMode>('search')
+  const [selectedSavedJobId, setSelectedSavedJobId] = useState<string | null>(null)
+  const [selectedSearchKey, setSelectedSearchKey] = useState<string | null>(null)
   const [formData, setFormData] = useState<JobPostingFormData>(() =>
     readDraft<JobPostingFormData>(JOB_FORM_DRAFT_KEY, EMPTY_JOB_FORM)
   )
@@ -137,16 +144,18 @@ export function AdminJobs() {
       getSavedJobSearches(),
       getJobSyncRuns(),
       getJobMatches(),
+      getCompanyWatchlists(),
       getSkills(),
       getAllProjects(),
       getResumeWorkspace(),
-    ]).then(([jobData, applicationData, savedSearchData, syncRunData, jobMatchData, skillsData, projectData, workspace]) => {
+    ]).then(([jobData, applicationData, savedSearchData, syncRunData, jobMatchData, watchlistData, skillsData, projectData, workspace]) => {
       if (!mounted) return
       setJobs(jobData)
       setApplications(applicationData)
       setSavedSearches(savedSearchData)
       setSyncRuns(syncRunData)
       setJobMatches(jobMatchData)
+      setWatchlists(watchlistData)
       setSkills(skillsData)
       setProjects(projectData)
       setCandidateProfile(workspace.candidateProfile)
@@ -202,6 +211,17 @@ export function AdminJobs() {
     () => new Set((jobs ?? []).filter((job) => job.external_id).map((job) => `${job.source}:${job.external_id}`)),
     [jobs]
   )
+  const trackedExternalKeys = useMemo(() => {
+    const keys = new Set<string>()
+
+    for (const job of jobs ?? []) {
+      if (!job.external_id) continue
+      if (!trackedJobIds.has(job.id)) continue
+      keys.add(`${job.source}:${job.external_id}`)
+    }
+
+    return keys
+  }, [jobs, trackedJobIds])
 
   const filteredJobs = useMemo(() => {
     const source = jobs ?? []
@@ -217,6 +237,9 @@ export function AdminJobs() {
       return true
     })
   }, [jobs, persistedMatchById, fitById, activeFilter, trackedJobIds])
+
+  const selectedSavedJob =
+    filteredJobs.find((job) => job.id === selectedSavedJobId) ?? filteredJobs[0] ?? null
 
   const stats = useMemo(() => {
     const source = jobs ?? []
@@ -237,6 +260,20 @@ export function AdminJobs() {
       { label: 'Tracked', value: trackedJobIds.size, tone: 'text-blue-300' },
     ]
   }, [jobs, persistedMatchById, fitById, trackedJobIds])
+
+  const analytics = useMemo(
+    () =>
+      buildCareerAnalytics({
+        jobs: jobs ?? [],
+        applications: applications ?? [],
+        savedSearches: savedSearches ?? [],
+        syncRuns: syncRuns ?? [],
+        watchlists: watchlists ?? [],
+        highlights: [],
+        window: '30d',
+      }),
+    [applications, jobs, savedSearches, syncRuns, watchlists]
+  )
 
   const suggestedQueries = useMemo(
     () => buildSuggestedQueries(skills, projects, primaryVariant, candidateProfile),
@@ -265,6 +302,27 @@ export function AdminJobs() {
       ),
     [candidateProfile, searchResults, skills, projects, primaryVariant]
   )
+
+  const selectedSearchResult =
+    searchResults.find((result) => `${result.source}:${result.external_id}` === selectedSearchKey) ??
+    searchResults[0] ??
+    null
+  const selectedSavedFit = selectedSavedJob
+    ? {
+        heuristic: fitById.get(selectedSavedJob.id),
+        persisted: persistedMatchById.get(selectedSavedJob.id),
+      }
+    : null
+  const selectedSearchFit = selectedSearchResult
+    ? searchResultFits.get(`${selectedSearchResult.source}:${selectedSearchResult.external_id}`)
+    : null
+  const selectedSavedTracked = selectedSavedJob ? trackedJobIds.has(selectedSavedJob.id) : false
+  const selectedSearchImported = selectedSearchResult
+    ? importedExternalKeys.has(`${selectedSearchResult.source}:${selectedSearchResult.external_id}`)
+    : false
+  const selectedSearchTracked = selectedSearchResult
+    ? trackedExternalKeys.has(`${selectedSearchResult.source}:${selectedSearchResult.external_id}`)
+    : false
 
   const sortPortfolioSearchResults = useCallback(
     (results: ExternalJobSearchResult[]) =>
@@ -330,11 +388,17 @@ export function AdminJobs() {
     })
   }, [])
 
-  const importExternalResults = useCallback(async (results: ExternalJobSearchResult[]) => {
+  const importExternalResults = useCallback(async (
+    results: ExternalJobSearchResult[],
+    attribution?: {
+      savedJobSearchId?: string | null
+      queryLabel?: string
+    }
+  ) => {
     const importedJobs: JobPosting[] = []
 
     for (const result of results) {
-      const imported = await upsertImportedJobPosting(buildImportedJobPayload(result))
+      const imported = await upsertImportedJobPosting(buildImportedJobPayload(result, attribution))
       if (imported) {
         importedJobs.push(imported)
       }
@@ -391,7 +455,10 @@ export function AdminJobs() {
 
     try {
       const results = await searchExternalJobs(request)
-      const importedCount = await importExternalResults(results)
+      const importedCount = await importExternalResults(results, {
+        savedJobSearchId: savedSearch.id,
+        queryLabel: savedSearch.query,
+      })
       const completedAt = new Date().toISOString()
 
       if (options?.updateResults ?? true) {
@@ -539,7 +606,13 @@ export function AdminJobs() {
   const persistImportedResult = async (result: ExternalJobSearchResult) => {
     setImportingExternalKey(`${result.source}:${result.external_id}`)
     try {
-      const imported = await upsertImportedJobPosting(buildImportedJobPayload(result))
+      const matchingSavedSearch = findMatchingSavedSearch(searchForm, savedSearches ?? [])
+      const imported = await upsertImportedJobPosting(
+        buildImportedJobPayload(result, {
+          savedJobSearchId: matchingSavedSearch?.id ?? null,
+          queryLabel: matchingSavedSearch?.query ?? searchForm.query,
+        })
+      )
       if (imported) mergeImportedJobs([imported])
       return imported
     } catch (error) {
@@ -757,7 +830,7 @@ export function AdminJobs() {
   }, [])
 
   const handleRunPortfolioSearch = useCallback(async () => {
-    if (searchForm.source !== 'usajobs') return
+    if (searchForm.source !== 'google_jobs' && searchForm.source !== 'adzuna' && searchForm.source !== 'usajobs') return
 
     const requests = buildPortfolioSearchRequests(
       searchForm,
@@ -768,7 +841,7 @@ export function AdminJobs() {
       candidateProfile
     )
     if (requests.length === 0) {
-      setSearchError('Add a query, skills, or projects first so the USAJobs search pack has something to work from.')
+      setSearchError('Add a query, skills, or projects first so the search pack has something to work from.')
       return
     }
 
@@ -799,7 +872,7 @@ export function AdminJobs() {
         setSearchError(
           failures.length > 0
             ? failures.join(' ')
-            : 'No USAJobs results came back for the portfolio-driven query pack.'
+            : 'No search results came back for the portfolio-driven query pack.'
         )
       } else if (failures.length > 0) {
         setSearchError(failures.join(' '))
@@ -814,7 +887,7 @@ export function AdminJobs() {
     return (
       <div className="space-y-6">
         <div>
-          <h1 className="text-3xl font-bold gradient-text">Jobs</h1>
+          <h1 className="text-3xl font-bold gradient-text">Discover</h1>
           <p className="text-muted-foreground mt-1">
             Run migration 004 to unlock the jobs and applications workspace.
           </p>
@@ -836,12 +909,30 @@ export function AdminJobs() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold gradient-text">Jobs</h1>
+          <h1 className="text-3xl font-bold gradient-text">Discover</h1>
           <p className="text-muted-foreground mt-1">
-            Search real boards, import the roles worth keeping, and move the best ones into Applications.
+            Search, scan, and keep only the roles worth moving into Applications.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <div className="inline-flex rounded-lg border border-white/10 bg-black/20 p-1">
+            <Button
+              type="button"
+              size="sm"
+              variant={panelMode === 'search' ? 'default' : 'ghost'}
+              onClick={() => setPanelMode('search')}
+            >
+              Search results
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={panelMode === 'saved' ? 'default' : 'ghost'}
+              onClick={() => setPanelMode('saved')}
+            >
+              Imported jobs
+            </Button>
+          </div>
           <Button
             type="button"
             variant="outline"
@@ -853,38 +944,18 @@ export function AdminJobs() {
             {refreshingMatches ? 'Refreshing matches...' : 'Refresh semantic matches'}
           </Button>
           <Link to={getAdminPath('applications')}>
-            <Button variant="outline" className="gap-2">
-              Applications
-              <ArrowRight className="h-4 w-4" />
-            </Button>
+            <Button variant="outline">Applications</Button>
           </Link>
         </div>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        {stats.map((stat) => (
-          <Card key={stat.label} className="glass">
-            <CardContent className="p-4">
-              <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">{stat.label}</p>
-              <p className={`mt-2 text-2xl font-semibold ${stat.tone}`}>{stat.value}</p>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
       <Tabs value={panelMode} onValueChange={(value) => setPanelMode(value as JobsMode)} className="space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <TabsList className="bg-black/30">
-            <TabsTrigger value="saved">Saved jobs</TabsTrigger>
-            <TabsTrigger value="search">Search import</TabsTrigger>
-          </TabsList>
-          <p className="text-xs text-muted-foreground">
-            Connector search is admin-only and uses the server-side function, not the browser.
-          </p>
-        </div>
+        <p className="text-xs text-muted-foreground">
+          Connector search is admin-only and uses the server-side function, not the browser.
+        </p>
 
-        <div className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
-          <Card className="glass xl:sticky xl:top-6 h-fit">
+        <div className="grid gap-6 xl:grid-cols-[340px_minmax(0,1fr)]">
+          <Card className="glass">
             <CardContent className="p-5">
               <TabsContent value="saved" className="mt-0">
                 <form className="space-y-4" onSubmit={handleCreateJob}>
@@ -1015,10 +1086,60 @@ export function AdminJobs() {
 
               <TabsContent value="search" className="mt-0">
                 <form className="space-y-4" onSubmit={handleSearch}>
-                  <div className="space-y-3 rounded-xl border border-white/10 bg-black/20 p-3">
-                    <div className="flex items-center justify-between gap-3">
+                  <div className="space-y-1">
+                    <p className="text-sm font-semibold text-foreground">Search + import</p>
+                    <p className="text-xs text-muted-foreground">
+                      Search real boards now, import the keepers, and move the best matches into Applications fast.
+                    </p>
+                  </div>
+
+                  <details className="rounded-xl border border-white/10 bg-black/20 group">
+                    <summary className="cursor-pointer p-4 list-none flex justify-between items-center">
                       <div>
-                        <p className="text-sm font-semibold text-foreground">Saved sources</p>
+                        <p className="text-sm font-semibold text-foreground">Portfolio query pack</p>
+                        <p className="mt-1 text-xs text-muted-foreground group-open:hidden">
+                          Click to expand auto-generated queries based on your skills.
+                        </p>
+                      </div>
+                      <span className="text-xs text-muted-foreground group-open:hidden">Expand ↓</span>
+                      <span className="text-xs text-muted-foreground hidden group-open:inline">Collapse ↑</span>
+                    </summary>
+                    <div className="p-4 pt-0 border-t border-white/10 mt-2">
+                      <p className="mb-4 text-xs text-muted-foreground">
+                        Run a broader search pack generated from your skills, projects, and primary resume. Keep semantic refresh secondary.
+                      </p>
+                      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-white/10 bg-black/30 px-3 py-2">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-foreground">Query pack</p>
+                          <p className="text-xs text-muted-foreground">
+                            {suggestedQueries.length} suggested queries based on your skills/resume.
+                          </p>
+                        </div>
+                        <Button
+                          type="button"
+                          className="gap-2"
+                          disabled={(searchForm.source !== 'usajobs' && searchForm.source !== 'adzuna') || isSearching || runningPortfolioSearch}
+                          onClick={() => void handleRunPortfolioSearch()}
+                        >
+                          <Compass className="h-4 w-4" />
+                          {runningPortfolioSearch ? 'Searching...' : 'Run query pack'}
+                        </Button>
+                      </div>
+                      {searchForm.source !== 'usajobs' && searchForm.source !== 'adzuna' && (
+                        <p className="mt-3 text-xs text-amber-200">
+                          Switch the source to <code className="rounded bg-black/30 px-1 py-0.5">Adzuna</code> or <code className="rounded bg-black/30 px-1 py-0.5">USAJobs</code> to use the query pack.
+                        </p>
+                      )}
+                    </div>
+                  </details>
+
+                  <details className="rounded-xl border border-white/10 bg-black/20">
+                    <summary className="cursor-pointer list-none px-3 py-3 text-sm font-semibold text-foreground">
+                      Saved sources
+                    </summary>
+                    <div className="space-y-3 border-t border-white/10 px-3 py-3">
+                      <div className="flex items-center justify-between gap-3">
+                      <div>
                         <p className="text-xs text-muted-foreground">
                           Save a board/site once, then rerun it instead of pasting URLs every time.
                         </p>
@@ -1189,47 +1310,52 @@ export function AdminJobs() {
                     )}
 
                     {syncHistorySupported && (
-                      <div className="space-y-2 rounded-xl border border-white/10 bg-black/20 p-3">
-                        <div className="flex items-center gap-2">
-                          <History className="h-4 w-4 text-muted-foreground" />
-                          <p className="text-sm font-semibold text-foreground">Recent syncs</p>
-                        </div>
-
-                        {(syncRuns ?? []).length > 0 ? (
-                          <div className="space-y-2">
-                            {(syncRuns ?? []).slice(0, 6).map((syncRun) => (
-                              <div
-                                key={syncRun.id}
-                                className="rounded-lg border border-white/10 bg-black/30 px-3 py-2"
-                              >
-                                <div className="flex items-start justify-between gap-3">
-                                  <div className="min-w-0">
-                                    <p className="truncate text-sm font-medium text-foreground">
-                                      {syncRun.label || humanizeSearchSource(syncRun.source)}
-                                    </p>
-                                    <p className="mt-1 text-[11px] text-muted-foreground">
-                                      {formatSyncRunMeta(syncRun)}
-                                    </p>
-                                  </div>
-                                  <Badge className={syncRunBadgeClassName(syncRun.status)}>
-                                    {syncRun.status}
-                                  </Badge>
-                                </div>
-
-                                {syncRun.error_message && (
-                                  <p className="mt-2 text-[11px] text-amber-200">
-                                    {truncateText(syncRun.error_message, 120)}
-                                  </p>
-                                )}
-                              </div>
-                            ))}
+                      <details className="rounded-xl border border-white/10 bg-black/20">
+                        <summary className="cursor-pointer list-none px-3 py-3 text-sm font-semibold text-foreground">
+                          Sync history
+                        </summary>
+                        <div className="space-y-2 border-t border-white/10 px-3 py-3">
+                          <div className="flex items-center gap-2">
+                            <History className="h-4 w-4 text-muted-foreground" />
+                            <p className="text-sm font-semibold text-foreground">Recent syncs</p>
                           </div>
-                        ) : (
-                          <p className="text-xs text-muted-foreground">
-                            No sync history yet. Run Sync on a saved source to start building a trail.
-                          </p>
-                        )}
-                      </div>
+
+                          {(syncRuns ?? []).length > 0 ? (
+                            <div className="space-y-2">
+                              {(syncRuns ?? []).slice(0, 6).map((syncRun) => (
+                                <div
+                                  key={syncRun.id}
+                                  className="rounded-lg border border-white/10 bg-black/30 px-3 py-2"
+                                >
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                      <p className="truncate text-sm font-medium text-foreground">
+                                        {syncRun.label || humanizeSearchSource(syncRun.source)}
+                                      </p>
+                                      <p className="mt-1 text-[11px] text-muted-foreground">
+                                        {formatSyncRunMeta(syncRun)}
+                                      </p>
+                                    </div>
+                                    <Badge className={syncRunBadgeClassName(syncRun.status)}>
+                                      {syncRun.status}
+                                    </Badge>
+                                  </div>
+
+                                  {syncRun.error_message && (
+                                    <p className="mt-2 text-[11px] text-amber-200">
+                                      {truncateText(syncRun.error_message, 120)}
+                                    </p>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-xs text-muted-foreground">
+                              No sync history yet. Run Sync on a saved source to start building a trail.
+                            </p>
+                          )}
+                        </div>
+                      </details>
                     )}
 
                     {searchesSupported && (savedSearches?.length ?? 0) === 0 && (
@@ -1237,116 +1363,29 @@ export function AdminJobs() {
                         No saved sources yet. Set up one board/site below, then save it once.
                       </p>
                     )}
-                  </div>
+                    </div>
+                  </details>
 
                   <div className="space-y-1">
-                    <p className="text-sm font-semibold text-foreground">Connector search</p>
+                    <p className="text-sm font-semibold text-foreground">Global Job Search</p>
                     <p className="text-xs text-muted-foreground">
-                      Search Greenhouse or Lever board feeds now. USAJobs is the easiest broad search path because it does not need a board token.
+                      Search thousands of real job postings instantly.
                     </p>
                   </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="search-source">Source</Label>
-                    <select
-                      id="search-source"
-                      value={searchForm.source}
-                      onChange={(event) => {
-                        const nextSource = event.target.value as JobSearchSource
-                        setSearchForm((current) => ({
-                          ...current,
-                          source: nextSource,
-                          boardOrSite: nextSource === 'usajobs' ? '' : current.boardOrSite,
-                          limit: nextSource === 'usajobs'
-                            ? Math.max(20, Math.min(current.limit, 200))
-                            : Math.min(current.limit, 50),
-                        }))
-                      }}
-                      className="flex h-10 w-full rounded-md border border-white/10 bg-black/40 px-3 py-2 text-sm"
-                    >
-                      <option value="greenhouse">Greenhouse board</option>
-                      <option value="lever">Lever site</option>
-                      <option value="usajobs">USAJobs</option>
-                    </select>
-                  </div>
-
-                  {searchForm.source !== 'usajobs' && (
-                    <div className="space-y-2">
-                      <Label htmlFor="search-board-site">{boardOrSiteLabel(searchForm.source)}</Label>
+                  <div className="flex flex-col sm:flex-row gap-3 items-end">
+                    <div className="space-y-2 flex-1">
+                      <Label htmlFor="search-query">Keyword query</Label>
                       <Input
-                        id="search-board-site"
-                        value={searchForm.boardOrSite}
+                        id="search-query"
+                        value={searchForm.query}
                         onChange={(event) =>
-                          setSearchForm((current) => ({ ...current, boardOrSite: event.target.value }))
+                          setSearchForm((current) => ({ ...current, query: event.target.value }))
                         }
-                        placeholder={boardOrSitePlaceholder(searchForm.source)}
+                        placeholder="machine learning engineer python"
                         className="bg-black/40 border-white/10"
-                        required
                       />
-                      <p className="text-xs text-muted-foreground">
-                        {boardOrSiteHelp(searchForm.source)}
-                      </p>
                     </div>
-                  )}
-
-                  <div className="space-y-2">
-                    <Label htmlFor="search-query">Keyword query</Label>
-                    <Input
-                      id="search-query"
-                      value={searchForm.query}
-                      onChange={(event) =>
-                        setSearchForm((current) => ({ ...current, query: event.target.value }))
-                      }
-                      placeholder="machine learning engineer python"
-                      className="bg-black/40 border-white/10"
-                    />
-                    {suggestedQueries.length > 0 && (
-                      <div className="flex flex-wrap gap-2 pt-1">
-                        {suggestedQueries.map((query) => (
-                          <button
-                            key={query}
-                            type="button"
-                            onClick={() =>
-                              setSearchForm((current) => ({
-                                ...current,
-                                query,
-                              }))
-                            }
-                            className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-muted-foreground transition-colors hover:bg-white/10 hover:text-foreground"
-                          >
-                            {query}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  {searchForm.source === 'usajobs' && (
-                    <div className="rounded-xl border border-white/10 bg-black/20 p-3">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="text-sm font-medium text-foreground">Portfolio-driven USAJobs search</p>
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            Runs a broader search pack generated from role titles, skills, and keyword combinations from your portfolio, then re-ranks the combined results.
-                          </p>
-                        </div>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          className="gap-2"
-                          disabled={isSearching || runningPortfolioSearch}
-                          onClick={() => void handleRunPortfolioSearch()}
-                        >
-                          <Compass className="h-4 w-4" />
-                          {runningPortfolioSearch ? 'Searching...' : 'Run query pack'}
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-2">
+                    <div className="space-y-2 flex-1">
                       <Label htmlFor="search-location">Location</Label>
                       <Input
                         id="search-location"
@@ -1358,7 +1397,7 @@ export function AdminJobs() {
                         className="bg-black/40 border-white/10"
                       />
                     </div>
-                    <div className="space-y-2">
+                    <div className="space-y-2 w-full sm:w-32">
                       <Label htmlFor="search-limit">Results</Label>
                       <select
                         id="search-limit"
@@ -1376,9 +1415,37 @@ export function AdminJobs() {
                         ))}
                       </select>
                     </div>
+                    <Button type="submit" className="gap-2 h-10 px-8 w-full sm:w-auto" disabled={isSearching}>
+                      <Compass className="h-4 w-4" />
+                      {isSearching ? 'Searching...' : 'Search'}
+                    </Button>
                   </div>
 
-                  <label className="flex items-center gap-2 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-muted-foreground">
+                  {suggestedQueries.length > 0 && (
+                    <details className="mt-2">
+                      <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground">
+                        Show portfolio-suggested queries
+                      </summary>
+                      <div className="flex flex-wrap gap-2 pt-2">
+                        {suggestedQueries.map((query) => (
+                          <button
+                            key={query}
+                            type="button"
+                            onClick={() =>
+                              setSearchForm((current) => ({
+                                ...current,
+                                query,
+                              }))
+                            }
+                            className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-muted-foreground transition-colors hover:bg-white/10 hover:text-foreground"
+                          >
+                            {query}
+                          </button>
+                        ))}
+                      </div>
+                    </details>
+                  )}
+                  <label className="flex items-center gap-2 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-muted-foreground w-max">
                     <input
                       type="checkbox"
                       checked={searchForm.remoteOnly}
@@ -1389,15 +1456,6 @@ export function AdminJobs() {
                     />
                     Remote-first filter
                   </label>
-
-                  <Button type="submit" className="w-full gap-2" disabled={isSearching}>
-                    <Compass className="h-4 w-4" />
-                    {isSearching ? 'Searching...' : 'Search jobs'}
-                  </Button>
-
-                  <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-muted-foreground">
-                    Suggested queries come from your skills, projects, and primary resume. Saved sources turn this into repeatable curation instead of one-off searches.
-                  </div>
                 </form>
               </TabsContent>
             </CardContent>
@@ -1503,53 +1561,42 @@ export function AdminJobs() {
                                 Lead with: {persistedMatch.best_evidence_label}
                               </p>
                             )}
-                            <div className="mt-3 flex flex-wrap gap-2">
-                              {matchedSkills.slice(0, 4).map((skill) => (
-                                <Badge
-                                  key={`${job.id}-${skill}`}
-                                  variant="outline"
-                                  className="border-emerald-400/20 text-emerald-200"
-                                >
-                                  {skill}
-                                </Badge>
-                              ))}
-                              {matchedProjects.slice(0, 2).map((projectTitle) => (
-                                <Badge
-                                  key={`${job.id}-${projectTitle}`}
-                                  variant="outline"
-                                  className="border-blue-400/20 text-blue-200"
-                                >
-                                  {projectTitle}
-                                </Badge>
-                              ))}
-                              {matchedKeywords.slice(0, 3).map((keyword) => (
-                                <Badge
-                                  key={`${job.id}-${keyword}`}
-                                  variant="outline"
-                                  className="border-white/10 text-muted-foreground"
-                                >
-                                  {keyword}
-                                </Badge>
-                              ))}
-                            </div>
-                            {persistedMatch && persistedMatch.missing_signals.length > 0 && (
-                              <div className="mt-4 space-y-2">
-                                <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
-                                  Missing signals
-                                </p>
-                                <div className="flex flex-wrap gap-2">
-                                  {persistedMatch.missing_signals.slice(0, 5).map((signal) => (
-                                    <Badge
-                                      key={`${job.id}-${signal}`}
-                                      variant="outline"
-                                      className="border-rose-400/20 text-rose-200"
-                                    >
-                                      {signal}
-                                    </Badge>
-                                  ))}
-                                </div>
+                            <details className="mt-3 group">
+                              <summary className="cursor-pointer text-xs text-muted-foreground list-none flex justify-between items-center bg-black/20 p-2 rounded border border-white/10">
+                                <span>Show matching signals & skills</span>
+                                <span className="group-open:hidden">↓</span>
+                                <span className="hidden group-open:inline">↑</span>
+                              </summary>
+                              <div className="pt-3 flex flex-wrap gap-2">
+                                {matchedSkills.slice(0, 4).map((skill) => (
+                                  <Badge key={`${job.id}-${skill}`} variant="outline" className="border-emerald-400/20 text-emerald-200 text-[10px]">
+                                    {skill}
+                                  </Badge>
+                                ))}
+                                {matchedProjects.slice(0, 2).map((projectTitle) => (
+                                  <Badge key={`${job.id}-${projectTitle}`} variant="outline" className="border-blue-400/20 text-blue-200 text-[10px]">
+                                    {projectTitle}
+                                  </Badge>
+                                ))}
+                                {matchedKeywords.slice(0, 3).map((keyword) => (
+                                  <Badge key={`${job.id}-${keyword}`} variant="outline" className="border-white/10 text-muted-foreground text-[10px]">
+                                    {keyword}
+                                  </Badge>
+                                ))}
                               </div>
-                            )}
+                              {persistedMatch && persistedMatch.missing_signals.length > 0 && (
+                                <div className="mt-3 space-y-2">
+                                  <p className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Missing signals</p>
+                                  <div className="flex flex-wrap gap-2">
+                                    {persistedMatch.missing_signals.slice(0, 5).map((signal) => (
+                                      <Badge key={`${job.id}-${signal}`} variant="outline" className="border-rose-400/20 text-rose-200 text-[10px]">
+                                        {signal}
+                                      </Badge>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </details>
                           </div>
                         )}
 
@@ -1645,6 +1692,7 @@ export function AdminJobs() {
                 {searchResults.map((result) => {
                   const fit = searchResultFits.get(`${result.source}:${result.external_id}`)
                   const alreadyImported = importedExternalKeys.has(`${result.source}:${result.external_id}`)
+                  const alreadyTracked = trackedExternalKeys.has(`${result.source}:${result.external_id}`)
 
                   return (
                     <Card key={`${result.source}:${result.external_id}`} className="glass">
@@ -1660,11 +1708,15 @@ export function AdminJobs() {
                                   Fit {fit.score}
                                 </Badge>
                               )}
-                              {alreadyImported && (
+                              {alreadyTracked ? (
                                 <Badge variant="outline" className="border-blue-400/30 text-blue-200">
+                                  In applications
+                                </Badge>
+                              ) : alreadyImported ? (
+                                <Badge variant="outline" className="border-white/10 text-muted-foreground">
                                   Imported
                                 </Badge>
-                              )}
+                              ) : null}
                             </div>
                             <p className="mt-1 text-sm text-muted-foreground">
                               {[result.company, result.location].filter(Boolean).join(' • ') || result.source_label}
@@ -1689,13 +1741,37 @@ export function AdminJobs() {
                         </div>
 
                         {fit && (
-                          <div className="rounded-xl border border-white/10 bg-black/20 p-3">
-                            <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-                              <Sparkles className="h-4 w-4 text-amber-300" />
-                              Match read
+                          <details className="rounded-xl border border-white/10 bg-black/20 group">
+                            <summary className="cursor-pointer p-3 flex items-center justify-between text-sm font-medium text-foreground list-none">
+                              <div className="flex items-center gap-2">
+                                <Sparkles className="h-4 w-4 text-amber-300" />
+                                Match read: {fit.band} ({fit.score})
+                              </div>
+                              <span className="text-muted-foreground text-xs group-open:hidden">View details ↓</span>
+                              <span className="text-muted-foreground text-xs hidden group-open:inline">Hide details ↑</span>
+                            </summary>
+                            <div className="p-3 pt-0 border-t border-white/10 mt-2 space-y-3">
+                              <p className="text-sm text-muted-foreground">{fit.summary}</p>
+
+                              <div className="flex flex-wrap gap-2">
+                                {fit.matchedSkills.slice(0, 4).map((skill) => (
+                                  <Badge key={`${result.source}-${result.external_id}-${skill}`} variant="outline" className="border-emerald-400/20 text-emerald-200 text-[10px]">
+                                    {skill}
+                                  </Badge>
+                                ))}
+                                {fit.matchedProjects.slice(0, 2).map((projectTitle) => (
+                                  <Badge key={`${result.source}-${result.external_id}-${projectTitle}`} variant="outline" className="border-blue-400/20 text-blue-200 text-[10px]">
+                                    {projectTitle}
+                                  </Badge>
+                                ))}
+                                {fit.matchedKeywords.slice(0, 3).map((keyword) => (
+                                  <Badge key={`${result.source}-${result.external_id}-${keyword}`} variant="outline" className="border-white/10 text-muted-foreground text-[10px]">
+                                    {keyword}
+                                  </Badge>
+                                ))}
+                              </div>
                             </div>
-                            <p className="mt-2 text-sm text-muted-foreground">{fit.summary}</p>
-                          </div>
+                          </details>
                         )}
 
                         <p className="text-sm text-muted-foreground line-clamp-4">
@@ -1703,18 +1779,6 @@ export function AdminJobs() {
                         </p>
 
                         <div className="flex flex-wrap items-center gap-2">
-                          {result.job_url && (
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              className="gap-2"
-                              onClick={() => window.open(result.job_url, '_blank', 'noopener,noreferrer')}
-                            >
-                              <ExternalLink className="h-4 w-4" />
-                              Open posting
-                            </Button>
-                          )}
                           <Button
                             type="button"
                             variant="outline"
@@ -1728,14 +1792,27 @@ export function AdminJobs() {
                           </Button>
                           <Button
                             type="button"
+                            variant="outline"
                             size="sm"
                             className="gap-2"
                             disabled={importingExternalKey === `${result.source}:${result.external_id}`}
                             onClick={() => handleImportResult(result)}
                           >
                             <Plus className="h-4 w-4" />
-                            {alreadyImported ? 'Refresh import' : 'Import to saved jobs'}
+                            Import
                           </Button>
+                          {result.job_url && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="gap-2"
+                              onClick={() => window.open(result.job_url, '_blank', 'noopener,noreferrer')}
+                            >
+                              <ExternalLink className="h-4 w-4" />
+                              Open posting
+                            </Button>
+                          )}
                         </div>
                       </CardContent>
                     </Card>
@@ -1767,12 +1844,24 @@ function fitBadgeClassName(band: ReturnType<typeof scoreJobFit>['band']): string
 function boardOrSiteLabel(source: JobSearchSource): string {
   if (source === 'greenhouse') return 'Board token or Greenhouse URL'
   if (source === 'lever') return 'Site name or Lever URL'
+  if (source === 'workday') return 'Workday careers URL'
+  if (source === 'ashby') return 'Job board name or Ashby URL'
+  if (source === 'smartrecruiters') return 'Company identifier or careers URL'
+  if (source === 'icims') return 'iCIMS jobs URL'
+  if (source === 'workable') return 'Account subdomain or Workable URL'
+  if (source === 'jobvite') return 'Company identifier or Jobvite URL'
   return 'Source'
 }
 
 function boardOrSitePlaceholder(source: JobSearchSource): string {
   if (source === 'greenhouse') return 'openai or https://boards.greenhouse.io/openai'
   if (source === 'lever') return 'netflix or https://jobs.lever.co/netflix'
+  if (source === 'workday') return 'https://nvidia.wd5.myworkdayjobs.com/en-US/NVIDIAExternalCareerSite'
+  if (source === 'ashby') return 'OpenAI or https://jobs.ashbyhq.com/OpenAI'
+  if (source === 'smartrecruiters') return 'smartrecruiters or https://careers.smartrecruiters.com/smartrecruiters'
+  if (source === 'icims') return 'https://careers.icims.com/jobs/search'
+  if (source === 'workable') return 'openai or https://apply.workable.com/openai'
+  if (source === 'jobvite') return 'openai or https://jobs.jobvite.com/openai'
   return ''
 }
 
@@ -1783,14 +1872,40 @@ function boardOrSiteHelp(source: JobSearchSource): string {
   if (source === 'lever') {
     return 'Paste the site name or a Lever jobs URL once, then save it as a reusable source.'
   }
+  if (source === 'workday') {
+    return 'Paste a public Workday careers URL or the detected Workday board URL from a company watchlist.'
+  }
+  if (source === 'ashby') {
+    return 'Paste the Ashby jobs page name or hosted job board URL once, then save it as a reusable source.'
+  }
+  if (source === 'smartrecruiters') {
+    return 'Paste the SmartRecruiters company identifier or careers URL once, then save it as a reusable source.'
+  }
+  if (source === 'icims') {
+    return 'Paste the iCIMS jobs/search URL for the target company. Discovery will usually fill this in from a watchlist first.'
+  }
+  if (source === 'workable') {
+    return 'Paste the Workable account subdomain or hosted jobs URL once, then save it as a reusable source.'
+  }
+  if (source === 'jobvite') {
+    return 'Paste the Jobvite company identifier or hosted jobs URL once, then save it as a reusable source.'
+  }
   return ''
 }
 
-function buildImportedJobPayload(result: ExternalJobSearchResult): JobPostingFormData {
+function buildImportedJobPayload(
+  result: ExternalJobSearchResult,
+  attribution?: {
+    savedJobSearchId?: string | null
+    queryLabel?: string
+  }
+): JobPostingFormData {
   return {
     source: result.source,
     external_id: result.external_id,
     watchlist_id: null,
+    saved_job_search_id: attribution?.savedJobSearchId ?? null,
+    query_label: attribution?.queryLabel?.trim() ?? '',
     title: result.title,
     company: result.company,
     location: result.location,
@@ -1804,6 +1919,19 @@ function buildImportedJobPayload(result: ExternalJobSearchResult): JobPostingFor
     source_text: '',
     embedding_updated_at: null,
   }
+}
+
+function findMatchingSavedSearch(
+  searchForm: ExternalJobSearchRequest,
+  savedSearches: SavedJobSearch[]
+): SavedJobSearch | undefined {
+  return savedSearches.find((savedSearch) =>
+    savedSearch.source === searchForm.source
+    && savedSearch.board_or_site.trim() === (searchForm.source === 'usajobs' ? '' : searchForm.boardOrSite.trim())
+    && savedSearch.query.trim() === searchForm.query.trim()
+    && savedSearch.location.trim() === searchForm.location.trim()
+    && savedSearch.remote_only === searchForm.remoteOnly
+  )
 }
 
 function savedSearchInputFromForm(
@@ -1973,6 +2101,21 @@ const OFF_TARGET_BUSINESS_TITLE_PHRASES = [
   'success manager',
 ]
 
+const STRONG_OFF_TARGET_GTM_TITLE_PHRASES = [
+  'account executive',
+  'account manager',
+  'business development',
+  'sales development representative',
+  'business development representative',
+  'sales representative',
+  'inside sales',
+  'outside sales',
+  'territory manager',
+  'client success manager',
+  'customer success manager',
+  'client partner',
+]
+
 const OFF_TARGET_LEADERSHIP_TITLE_PHRASES = [
   'engineering manager',
   'manager engineering',
@@ -2009,6 +2152,28 @@ const OFF_TARGET_BUSINESS_TEXT_PHRASES = [
   'demand generation',
 ]
 
+const STRONG_OFF_TARGET_GTM_TEXT_PHRASES = [
+  'quota attainment',
+  'quota carrying',
+  'quota-carrying',
+  'pipeline management',
+  'sales pipeline',
+  'sales cycle',
+  'prospecting',
+  'outbound prospecting',
+  'lead generation',
+  'lead qualification',
+  'closing deals',
+  'close deals',
+  'go to market',
+  'go-to-market',
+  'new logo',
+  'book of business',
+  'territory planning',
+  'territory management',
+  'revenue growth',
+]
+
 function buildSuggestedQueries(
   skills: Skill[],
   projects: Project[],
@@ -2041,7 +2206,6 @@ function buildPortfolioSearchRequests(
 
   return queries.slice(0, 8).map((query) => ({
     ...baseSearch,
-    source: 'usajobs',
     boardOrSite: '',
     query,
     limit: Math.max(20, Math.min(baseSearch.limit, 35)),
@@ -2049,7 +2213,7 @@ function buildPortfolioSearchRequests(
 }
 
 function getSearchLimitOptions(source: JobSearchSource): number[] {
-  return source === 'usajobs' ? [20, 50, 100, 200] : [10, 20, 30, 50]
+  return source === 'usajobs' || source === 'google_jobs' || source === 'adzuna' ? [20, 50, 100, 200] : [10, 20, 30, 50]
 }
 
 function inferRoleLabel(skillTerms: string[], projectTags: string[], variantTerms: string[]): string {
@@ -2349,10 +2513,22 @@ function computeOffTargetSearchPenalty(title: string, description: string): numb
   const normalizedJobText = normalizeQueryPhrase([title, description].join(' '))
   const targetContextHits = countMatchingQueryPhrases(normalizedJobText, SEARCH_CONTEXT_PHRASES)
   const icSignalHits = countMatchingQueryPhrases(normalizedJobText, INDIVIDUAL_CONTRIBUTOR_SEARCH_PHRASES)
+  const strongOffTargetGtmTitleHits = countMatchingQueryPhrases(normalizedTitle, STRONG_OFF_TARGET_GTM_TITLE_PHRASES)
+  const strongOffTargetGtmTextHits = countMatchingQueryPhrases(normalizedJobText, STRONG_OFF_TARGET_GTM_TEXT_PHRASES)
   let penalty = 0
+
+  if (strongOffTargetGtmTitleHits > 0) {
+    penalty += targetContextHits <= 2 ? 24 : 14
+  }
 
   if (containsAnyQueryPhrase(normalizedTitle, OFF_TARGET_BUSINESS_TITLE_PHRASES)) {
     penalty += targetContextHits <= 1 ? 18 : 8
+  }
+
+  if (strongOffTargetGtmTextHits >= 2 && targetContextHits <= 2) {
+    penalty += 10
+  } else if (strongOffTargetGtmTextHits > 0 && targetContextHits === 0) {
+    penalty += 6
   }
 
   if (containsAnyQueryPhrase(normalizedTitle, OFF_TARGET_ENGINEERING_TITLE_PHRASES)) {
@@ -2472,6 +2648,12 @@ function tokenizeInline(value: string): string[] {
 function humanizeSearchSource(source: JobSyncRun['source']): string {
   if (source === 'greenhouse') return 'Greenhouse'
   if (source === 'lever') return 'Lever'
+  if (source === 'workday') return 'Workday'
+  if (source === 'ashby') return 'Ashby'
+  if (source === 'smartrecruiters') return 'SmartRecruiters'
+  if (source === 'icims') return 'iCIMS'
+  if (source === 'workable') return 'Workable'
+  if (source === 'jobvite') return 'Jobvite'
   if (source === 'generic') return 'Generic'
   return 'USAJobs'
 }

@@ -1,6 +1,5 @@
 import { Suspense, useEffect } from 'react'
-import { Outlet, useLocation } from 'react-router-dom'
-import { motion } from 'framer-motion'
+import { Outlet } from 'react-router-dom'
 import { useAuth } from '@/components/auth/AuthProvider'
 import { LoginForm } from '@/components/auth/LoginForm'
 import { AdminSidebar } from '@/components/admin/AdminSidebar'
@@ -21,7 +20,6 @@ function AdminRouteFallback() {
 
 export function AdminLayout() {
   const { user, isAdmin, isLoading, signOut } = useAuth()
-  const location = useLocation()
 
   useEffect(() => {
     if (user || devBypassAdmin) {
@@ -93,17 +91,11 @@ export function AdminLayout() {
   return (
     <div className="min-h-screen flex bg-background">
       <AdminSidebar />
-      <main className="flex-1 p-6 md:p-8 overflow-auto">
+      <main className="flex-1 overflow-auto p-4 md:p-6 lg:p-8">
         <Suspense fallback={<AdminRouteFallback />}>
-          <motion.div
-            key={location.pathname}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
-            className="max-w-6xl mx-auto"
-          >
+          <div className="mx-auto w-full max-w-[1500px]">
             <Outlet />
-          </motion.div>
+          </div>
         </Suspense>
       </main>
     </div>

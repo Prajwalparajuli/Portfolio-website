@@ -7,4 +7,10 @@
 \ir ../app/supabase_migrations/005_saved_job_searches.sql
 \ir ../app/supabase_migrations/006_job_sync_runs.sql
 \ir ../app/supabase_migrations/007_career_cockpit_phase2.sql
+\ir ../app/supabase_migrations/008_source_coverage_expansion.sql
+\ir ../app/supabase_migrations/009_relationship_crm_phase5.sql
+\ir ../app/supabase_migrations/010_decision_support_phase6.sql
+\ir ../app/supabase_migrations/011_adzuna_source_expansion.sql
+\ir ../app/supabase_migrations/012_google_jobs_source_expansion.sql
+\ir ../app/supabase_migrations/013_project_structured_narrative.sql
 \echo Repo schema rebuild complete.

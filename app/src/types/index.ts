@@ -1,3 +1,12 @@
+export interface StructuredNarrative {
+  hook: string
+  problem: string
+  approach: string
+  results: string[]
+  learned: string[]
+  summary: string
+}
+
 export interface Project {
   id: string
   slug: string
@@ -13,6 +22,8 @@ export interface Project {
   updated_at: string
   /** Optional conversation starter, e.g. "Ask me about: scaling to 1M users" */
   ask_me_about: string | null
+  /** AI-generated structured project narrative */
+  structured_narrative?: StructuredNarrative | null
 }
 
 export interface Skill {
@@ -64,6 +75,8 @@ export interface PortfolioSettings {
   location: string
   /** Education and certifications for credibility section */
   education: EducationEntry[]
+  /** Headshot URL for hero section */
+  photo_url?: string
 }
 
 export interface CandidateProfile {
@@ -83,10 +96,23 @@ export interface CandidateProfile {
   updated_at: string
 }
 
-export type JobSource = 'manual' | 'greenhouse' | 'lever' | 'usajobs'
+export type JobSource =
+  | 'manual'
+  | 'greenhouse'
+  | 'lever'
+  | 'usajobs'
+  | 'workday'
+  | 'ashby'
+  | 'smartrecruiters'
+  | 'icims'
+  | 'workable'
+  | 'jobvite'
+  | 'adzuna'
+  | 'google_jobs'
 export type JobRemoteType = 'remote' | 'hybrid' | 'onsite' | 'unknown'
 export type JobSearchSource = Exclude<JobSource, 'manual'>
 export type JobSyncSource = JobSearchSource | 'generic'
+export type CompanyWatchlistSourceHint = 'auto' | Exclude<JobSearchSource, 'usajobs'> | 'generic'
 export type JobDiscoveryStatus = 'manual' | 'discovered' | 'snapshot' | 'unsupported' | 'error'
 export type ApplicationStatus =
   | 'saved'
@@ -103,6 +129,8 @@ export interface JobPosting {
   source: JobSource
   external_id: string
   watchlist_id: string | null
+  saved_job_search_id: string | null
+  query_label: string
   title: string
   company: string
   location: string
@@ -280,12 +308,18 @@ export interface CompanyWatchlist {
   id: string
   company_name: string
   careers_url: string
-  source_hint: 'auto' | 'greenhouse' | 'lever' | 'generic'
+  source_hint: CompanyWatchlistSourceHint
   board_or_site: string
   preferred_query: string
   location_hint: string
   priority: 'high' | 'medium' | 'low'
   is_enabled: boolean
+  why_this_company: string
+  research_notes: string
+  recent_news: string
+  competitors: string
+  salary_notes: string
+  last_researched_at: string | null
   last_discovery_at: string | null
   last_sync_at: string | null
   last_error: string
@@ -302,6 +336,11 @@ export interface CompanyWatchlistInput {
   location_hint: string
   priority: CompanyWatchlist['priority']
   is_enabled: boolean
+  why_this_company: string
+  research_notes: string
+  recent_news: string
+  competitors: string
+  salary_notes: string
 }
 
 export interface NotificationPreference {
@@ -322,7 +361,7 @@ export interface NotificationPreference {
 
 export interface NotificationItem {
   id: string
-  type: 'strong_match' | 'sync_failure' | 'follow_up_due' | 'stale_application' | 'system'
+  type: 'strong_match' | 'sync_failure' | 'follow_up_due' | 'contact_follow_up' | 'stale_application' | 'system'
   title: string
   body: string
   link_path: string
@@ -331,6 +370,7 @@ export interface NotificationItem {
   application_id: string | null
   job_posting_id: string | null
   company_watchlist_id: string | null
+  contact_id: string | null
   due_at: string | null
   sent_at: string | null
   created_at: string
@@ -374,15 +414,54 @@ export interface InterviewPrepNote {
   updated_at: string
 }
 
+export interface CareerContact {
+  id: string
+  company_watchlist_id: string | null
+  full_name: string
+  role_title: string
+  organization_name: string
+  relationship_kind: 'recruiter' | 'hiring_manager' | 'employee' | 'alumni' | 'referral' | 'networking' | 'other'
+  email: string
+  linkedin_url: string
+  location: string
+  introduced_by: string
+  notes: string
+  next_follow_up_at: string | null
+  last_contact_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface CareerContactInput {
+  company_watchlist_id: string | null
+  full_name: string
+  role_title: string
+  organization_name: string
+  relationship_kind: CareerContact['relationship_kind']
+  email: string
+  linkedin_url: string
+  location: string
+  introduced_by: string
+  notes: string
+  next_follow_up_at: string | null
+  last_contact_at: string | null
+}
+
 export interface ContactTouchpoint {
   id: string
   application_id: string | null
+  contact_id: string | null
+  company_watchlist_id: string | null
   company: string
   contact_name: string
   contact_role: string
   channel: 'email' | 'linkedin' | 'phone' | 'referral' | 'other'
+  touchpoint_kind: 'outreach' | 'reply' | 'meeting' | 'informational_interview' | 'referral' | 'recruiter_screen' | 'thank_you' | 'note'
+  direction: 'outbound' | 'inbound'
+  subject: string
   note: string
   occurred_at: string
+  next_follow_up_at: string | null
   created_at: string
   updated_at: string
 }

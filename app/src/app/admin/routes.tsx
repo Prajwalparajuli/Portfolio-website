@@ -25,10 +25,10 @@ const loadAdminResumePrintView = () =>
   import('../../components/admin/ResumePrintView').then((module) => ({ default: module.ResumePrintView }))
 
 const loadAdminJobs = () =>
-  import('./Jobs').then((module) => ({ default: module.AdminJobs }))
+  import('./JobsSimplified').then((module) => ({ default: module.AdminJobs }))
 
 const loadAdminApplications = () =>
-  import('./Applications').then((module) => ({ default: module.AdminApplications }))
+  import('./ApplicationsSimplified').then((module) => ({ default: module.AdminApplications }))
 
 const loadAdminInbox = () =>
   import('./Inbox').then((module) => ({ default: module.AdminInbox }))
@@ -38,6 +38,9 @@ const loadAdminAnswerBank = () =>
 
 const loadAdminWatchlists = () =>
   import('./Watchlists').then((module) => ({ default: module.AdminWatchlists }))
+
+const loadAdminContacts = () =>
+  import('./Contacts').then((module) => ({ default: module.AdminContacts }))
 
 export const AdminDashboardRoute = lazy(loadAdminDashboard)
 export const AdminProjectsRoute = lazy(loadAdminProjects)
@@ -52,6 +55,7 @@ export const AdminApplicationsRoute = lazy(loadAdminApplications)
 export const AdminInboxRoute = lazy(loadAdminInbox)
 export const AdminAnswerBankRoute = lazy(loadAdminAnswerBank)
 export const AdminWatchlistsRoute = lazy(loadAdminWatchlists)
+export const AdminContactsRoute = lazy(loadAdminContacts)
 
 export function preloadAdminRoutes() {
   return Promise.allSettled([
@@ -68,5 +72,6 @@ export function preloadAdminRoutes() {
     loadAdminInbox(),
     loadAdminAnswerBank(),
     loadAdminWatchlists(),
+    loadAdminContacts(),
   ])
 }

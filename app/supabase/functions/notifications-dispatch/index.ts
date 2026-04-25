@@ -11,6 +11,8 @@ type PreferenceRow = {
   timezone: string
 }
 
+type NotificationRow = Record<string, unknown>
+
 async function sendDigestEmail(subject: string, lines: string[]) {
   const apiKey = Deno.env.get('RESEND_API_KEY')
   const from = Deno.env.get('NOTIFICATION_FROM_EMAIL')
@@ -35,6 +37,54 @@ async function sendDigestEmail(subject: string, lines: string[]) {
     const body = await response.text().catch(() => '')
     throw new Error(`Resend email failed with status ${response.status}. ${body}`)
   }
+}
+
+function notificationKey(row: NotificationRow) {
+  const parts = [
+    row.type,
+    row.application_id,
+    row.job_posting_id,
+    row.company_watchlist_id,
+    row.contact_id,
+    row.due_at,
+    row.title,
+    row.body,
+  ]
+
+  return parts.map((part) => String(part ?? '')).join('|')
+}
+
+async function filterNewNotificationEntries(
+  service: ReturnType<typeof getServiceClient>,
+  rows: NotificationRow[],
+  emailLines: string[]
+) {
+  if (rows.length === 0) {
+    return { rows, emailLines }
+  }
+
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+  const existing = await service
+    .from('notification_items')
+    .select('type,title,body,application_id,job_posting_id,company_watchlist_id,contact_id,due_at')
+    .gte('created_at', since)
+
+  if (existing.error) throw existing.error
+
+  const seen = new Set(((existing.data ?? []) as NotificationRow[]).map(notificationKey))
+  const nextRows: NotificationRow[] = []
+  const nextEmailLines: string[] = []
+
+  rows.forEach((row, index) => {
+    const key = notificationKey(row)
+    if (seen.has(key)) return
+
+    seen.add(key)
+    nextRows.push(row)
+    if (emailLines[index]) nextEmailLines.push(emailLines[index])
+  })
+
+  return { rows: nextRows, emailLines: nextEmailLines }
 }
 
 Deno.serve(async (req) => {
@@ -62,12 +112,16 @@ Deno.serve(async (req) => {
       prefsResponse,
       applicationsResponse,
       jobsResponse,
+      watchlistsResponse,
+      contactsResponse,
       matchesResponse,
       syncRunsResponse,
     ] = await Promise.all([
       service.from('notification_preferences').select('*').eq('profile_key', 'primary').maybeSingle(),
       service.from('applications').select('id,job_posting_id,status,follow_up_at,updated_at'),
       service.from('job_postings').select('id,title,company'),
+      service.from('company_watchlists').select('id,company_name'),
+      service.from('career_contacts').select('id,full_name,role_title,organization_name,company_watchlist_id,next_follow_up_at'),
       service.from('job_matches').select('job_posting_id,total_score,band,reason_summary,refreshed_at').eq('band', 'strong'),
       service.from('job_sync_runs').select('id,label,error_message,completed_at').eq('status', 'error').order('completed_at', { ascending: false }).limit(10),
     ])
@@ -75,6 +129,8 @@ Deno.serve(async (req) => {
     if (prefsResponse.error) throw prefsResponse.error
     if (applicationsResponse.error) throw applicationsResponse.error
     if (jobsResponse.error) throw jobsResponse.error
+    if (watchlistsResponse.error) throw watchlistsResponse.error
+    if (contactsResponse.error) throw contactsResponse.error
     if (matchesResponse.error) throw matchesResponse.error
     if (syncRunsResponse.error) throw syncRunsResponse.error
 
@@ -89,12 +145,21 @@ Deno.serve(async (req) => {
       timezone: 'America/Chicago',
     }) as PreferenceRow
     const jobs = new Map(((jobsResponse.data ?? []) as Array<{ id: string; title: string; company: string }>).map((job) => [job.id, job]))
+    const watchlists = new Map(((watchlistsResponse.data ?? []) as Array<{ id: string; company_name: string }>).map((watchlist) => [watchlist.id, watchlist]))
     const applications = (applicationsResponse.data ?? []) as Array<{
       id: string
       job_posting_id: string
       status: string
       follow_up_at: string | null
       updated_at: string
+    }>
+    const contacts = (contactsResponse.data ?? []) as Array<{
+      id: string
+      full_name: string
+      role_title: string
+      organization_name: string
+      company_watchlist_id: string | null
+      next_follow_up_at: string | null
     }>
     const trackedJobIds = new Set(applications.map((application) => application.job_posting_id))
     const strongMatches = ((matchesResponse.data ?? []) as Array<{
@@ -109,6 +174,10 @@ Deno.serve(async (req) => {
       if (!application.follow_up_at) return false
       return new Date(application.follow_up_at).getTime() <= now
     })
+    const dueContacts = contacts.filter((contact) => {
+      if (!contact.next_follow_up_at) return false
+      return new Date(contact.next_follow_up_at).getTime() <= now
+    })
     const staleApplications = applications.filter((application) => {
       if (application.status !== 'ready_to_apply' && application.status !== 'applied') return false
       return now - new Date(application.updated_at).getTime() >= 5 * 24 * 60 * 60 * 1000
@@ -120,7 +189,7 @@ Deno.serve(async (req) => {
       completed_at: string | null
     }>
 
-    const notificationRows: Array<Record<string, unknown>> = []
+    const notificationRows: NotificationRow[] = []
     const emailLines: string[] = []
 
     if (prefs.strong_match_enabled) {
@@ -153,6 +222,24 @@ Deno.serve(async (req) => {
           due_at: application.follow_up_at,
         })
         emailLines.push(`Follow up due: ${job?.title ?? 'Tracked role'} at ${job?.company ?? 'Unknown company'}`)
+      })
+
+      dueContacts.slice(0, 8).forEach((contact) => {
+        const company = contact.company_watchlist_id
+          ? watchlists.get(contact.company_watchlist_id)?.company_name ?? contact.organization_name
+          : contact.organization_name
+
+        notificationRows.push({
+          type: 'contact_follow_up',
+          title: `Reach back out: ${contact.full_name || 'Contact'}`,
+          body: `A people follow-up is due for ${company || 'this contact'}.`,
+          link_path: `/admin/contacts?contact=${contact.id}`,
+          channel: prefs.email_enabled ? 'both' : 'inbox',
+          company_watchlist_id: contact.company_watchlist_id,
+          contact_id: contact.id,
+          due_at: contact.next_follow_up_at,
+        })
+        emailLines.push(`People follow-up due: ${contact.full_name || 'Contact'}${company ? ` at ${company}` : ''}`)
       })
     }
 
@@ -187,19 +274,22 @@ Deno.serve(async (req) => {
       })
     }
 
-    if (notificationRows.length > 0 && prefs.inbox_enabled) {
-      const insert = await service.from('notification_items').insert(notificationRows)
+    const deduped = await filterNewNotificationEntries(service, notificationRows, emailLines)
+
+    if (deduped.rows.length > 0 && prefs.inbox_enabled) {
+      const insert = await service.from('notification_items').insert(deduped.rows)
       if (insert.error) throw insert.error
     }
 
-    if (prefs.email_enabled && emailLines.length > 0) {
-      await sendDigestEmail('Career cockpit updates', emailLines)
+    if (prefs.email_enabled && deduped.emailLines.length > 0) {
+      await sendDigestEmail('Career cockpit updates', deduped.emailLines)
     }
 
     return json(200, {
       data: {
-        notificationsCreated: notificationRows.length,
-        emailLines: emailLines.length,
+        notificationsCreated: deduped.rows.length,
+        notificationsSkipped: notificationRows.length - deduped.rows.length,
+        emailLines: deduped.emailLines.length,
       },
     })
   } catch (error) {

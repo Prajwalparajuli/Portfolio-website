@@ -1,12 +1,17 @@
 import { useEffect, useState } from 'react'
-import { useParams, Navigate } from 'react-router-dom'
+import { useOutletContext, useParams, Navigate } from 'react-router-dom'
 import { ProjectDetail } from '@/components/public/ProjectDetail'
 import { getProjectBySlug } from '@/lib/supabase'
-import { Project } from '@/types'
+import { PortfolioSettings, Project } from '@/types'
 import { Loader2 } from 'lucide-react'
 
-const DEFAULT_TITLE = 'AI Portfolio | Data Scientist & AI Engineer'
-const DEFAULT_DESCRIPTION = 'Portfolio showcasing data science, machine learning, and AI engineering projects'
+const DEFAULT_TITLE = 'Prajwal Parajuli | Data Scientist & AI Engineer'
+const DEFAULT_DESCRIPTION =
+  'Portfolio of a Data Scientist & AI Engineer — Machine Learning, Computer Vision, and Recommendation Systems.'
+
+interface OutletContext {
+  settings: PortfolioSettings
+}
 
 function stripHtml(html: string): string {
   return html.replace(/<[^>]*>/g, '').trim().slice(0, 160)
@@ -58,6 +63,7 @@ function resetMeta() {
 }
 
 export function ProjectPage() {
+  const { settings } = useOutletContext<OutletContext>()
   const { slug } = useParams<{ slug: string }>()
   const [project, setProject] = useState<Project | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -68,6 +74,8 @@ export function ProjectPage() {
         setProject(data)
         setIsLoading(false)
       })
+    } else {
+      setIsLoading(false)
     }
   }, [slug])
 
@@ -90,5 +98,5 @@ export function ProjectPage() {
     return <Navigate to="/" />
   }
 
-  return <ProjectDetail project={project} />
+  return <ProjectDetail project={project} contactEmail={settings.contact_email} />
 }

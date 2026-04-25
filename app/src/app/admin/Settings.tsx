@@ -5,9 +5,9 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Loader2, Upload, FileText, Github, Linkedin, Twitter, Mail, Plus, Trash2, GraduationCap, Award, PenLine } from 'lucide-react'
+import { Loader2, Upload, FileText, Github, Linkedin, Twitter, Mail, Plus, Trash2, GraduationCap, Award, PenLine, User, Camera } from 'lucide-react'
 import { PortfolioSettings, EducationEntry } from '@/types'
-import { getSettings, updateSetting, uploadResume, syncCandidateProfileFromSettings } from '@/lib/supabase'
+import { getSettings, updateSetting, uploadResume, syncCandidateProfileFromSettings, supabase } from '@/lib/supabase'
 import { cn } from '@/lib/utils'
 import { Link } from 'react-router-dom'
 import { getAdminPath } from '@/lib/adminConfig'
@@ -16,7 +16,9 @@ export function AdminSettings() {
   const [settings, setSettings] = useState<PortfolioSettings | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false)
   const [saveMessage, setSaveMessage] = useState<string | null>(null)
+  const [photoUrl, setPhotoUrl] = useState<string>('')
   const lastSavedSnapshotRef = useRef('')
   const hasHydratedRef = useRef(false)
 
@@ -25,6 +27,10 @@ export function AdminSettings() {
       setSettings(data)
       lastSavedSnapshotRef.current = JSON.stringify(data)
       hasHydratedRef.current = true
+    })
+    // Load photo URL from settings
+    supabase.from('settings').select('*').eq('key', 'photo_url').maybeSingle().then(({ data }) => {
+      if (data?.value) setPhotoUrl(data.value)
     })
   }, [])
 
@@ -35,10 +41,12 @@ export function AdminSettings() {
     }
 
     try {
-      const updates = Object.entries(nextSettings).map(([key, value]) => {
-        if (key === 'education') return updateSetting(key, JSON.stringify(Array.isArray(value) ? value : []))
-        return updateSetting(key, typeof value === 'string' ? value || '' : '')
-      })
+      const updates = Object.entries(nextSettings)
+        .filter(([, value]) => value !== undefined) // skip undefined keys like photo_url before upload
+        .map(([key, value]) => {
+          if (key === 'education') return updateSetting(key, JSON.stringify(Array.isArray(value) ? value : []))
+          return updateSetting(key, typeof value === 'string' ? value : '')
+        })
       await Promise.all(updates)
       await syncCandidateProfileFromSettings(nextSettings)
       lastSavedSnapshotRef.current = JSON.stringify(nextSettings)
@@ -94,6 +102,48 @@ export function AdminSettings() {
       setSaveMessage('Error uploading resume. Please try again.')
     } finally {
       setIsUploading(false)
+    }
+  }, [settings])
+
+  const handlePhotoUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    if (!file.type.startsWith('image/')) {
+      alert('Please upload an image file (JPG, PNG, etc.)')
+      return
+    }
+
+    setIsUploadingPhoto(true)
+    try {
+      const fileExt = file.name.split('.').pop()
+      const fileName = `headshot-${Date.now()}.${fileExt}`
+
+      const { error: uploadError } = await supabase.storage
+        .from('project-covers')
+        .upload(fileName, file, { contentType: file.type })
+
+      if (uploadError) throw uploadError
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('project-covers')
+        .getPublicUrl(fileName)
+
+      await updateSetting('photo_url', publicUrl)
+      setPhotoUrl(publicUrl)
+      // Also sync into settings state so autosave doesn't overwrite
+      if (settings) {
+        const updated = { ...settings, photo_url: publicUrl }
+        setSettings(updated)
+        lastSavedSnapshotRef.current = JSON.stringify(updated)
+      }
+      setSaveMessage('Photo uploaded!')
+      setTimeout(() => setSaveMessage(null), 3000)
+    } catch (error) {
+      console.error('Error uploading photo:', error)
+      setSaveMessage('Error uploading photo.')
+    } finally {
+      setIsUploadingPhoto(false)
     }
   }, [settings])
 
@@ -206,6 +256,48 @@ export function AdminSettings() {
                     className="bg-black/40 border-white/10"
                   />
                   <p className="text-xs text-muted-foreground">Shown in hero and footer.</p>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Photo upload */}
+            <Card className="glass">
+              <CardHeader>
+                <CardTitle className="text-lg">Profile Photo</CardTitle>
+                <p className="text-sm text-muted-foreground">Upload a headshot for your hero section. Helps recruiters put a face to the name.</p>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center gap-6">
+                  {photoUrl ? (
+                    <img src={photoUrl} alt="Profile" className="h-24 w-24 rounded-2xl border-2 border-white/10 object-cover" />
+                  ) : (
+                    <div className="flex h-24 w-24 items-center justify-center rounded-2xl border-2 border-dashed border-white/20 bg-white/5">
+                      <User className="h-10 w-10 text-muted-foreground/40" />
+                    </div>
+                  )}
+                  <div className="space-y-2">
+                    <label className={cn(
+                      "flex items-center gap-2 px-4 py-2 rounded-lg border-2 border-dashed cursor-pointer transition-colors",
+                      "border-white/20 hover:border-white/40"
+                    )}>
+                      {isUploadingPhoto ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <>
+                          <Camera className="h-4 w-4" />
+                          {photoUrl ? 'Change Photo' : 'Upload Photo'}
+                        </>
+                      )}
+                      <input
+                        type="file"
+                        className="hidden"
+                        accept="image/*"
+                        onChange={handlePhotoUpload}
+                        disabled={isUploadingPhoto}
+                      />
+                    </label>
+                    <p className="text-xs text-muted-foreground">JPG, PNG, or WebP. Square crop recommended.</p>
+                  </div>
                 </div>
               </CardContent>
             </Card>

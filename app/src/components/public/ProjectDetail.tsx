@@ -1,178 +1,220 @@
 import { motion } from 'framer-motion'
-import { Project } from '@/types'
+import { format } from 'date-fns'
+import { Link } from 'react-router-dom'
+import DOMPurify from 'dompurify'
+import { ArrowLeft, ExternalLink, Github, Mail, Linkedin } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { ArrowLeft, Github, ExternalLink, Calendar, Terminal, Copy, Check, Clock } from 'lucide-react'
-import { useState } from 'react'
-import { Link } from 'react-router-dom'
-import { format } from 'date-fns'
-import { cn } from '@/lib/utils'
-import { getReadTimeLabel } from '@/lib/readTime'
+import { Project } from '@/types'
+import { getProjectNarrative } from '@/lib/publicPortfolio'
 
 interface ProjectDetailProps {
   project: Project
-  /** When true, hide the Back link (e.g. in-admin preview). */
+  contactEmail?: string
   hideBack?: boolean
 }
 
-function gitCloneUrl(githubUrl: string): string {
-  const match = githubUrl.match(/github\.com[/]([^/]+)[/]([^/]+?)(?:[/].*)?$/i)
-  if (!match) return ''
-  const [, owner, repo] = match
-  const cleanRepo = repo?.replace(/\.git$/, '') ?? repo
-  return `git clone https://github.com/${owner}/${cleanRepo}.git`
-}
-
-function gitpodUrl(githubUrl: string): string {
-  return `https://gitpod.io/#${githubUrl}`
-}
-
-export function ProjectDetail({ project, hideBack }: ProjectDetailProps) {
-  const [copied, setCopied] = useState(false)
-  const cloneCmd = project.github_url ? gitCloneUrl(project.github_url) : ''
-  const handleCopy = () => {
-    if (!cloneCmd) return
-    navigator.clipboard.writeText(cloneCmd).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    })
-  }
+export function ProjectDetail({ project, contactEmail, hideBack }: ProjectDetailProps) {
+  const narrative = getProjectNarrative(project)
+  const timelineLabel = format(new Date(project.updated_at || project.created_at), 'MMMM yyyy')
+  const safeDescription = DOMPurify.sanitize(project.description, {
+    ALLOWED_TAGS: ['p', 'br', 'h2', 'h3', 'h4', 'ul', 'ol', 'li', 'strong', 'em', 'a', 'blockquote', 'hr', 'code'],
+    ALLOWED_ATTR: ['href', 'target', 'rel'],
+  })
 
   return (
-    <article className="min-h-screen pb-24">
-      <header className="relative">
+    <article className="min-h-screen px-4 py-12 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-4xl">
+        {/* Navigation bar */}
+        {!hideBack && (
+          <div className="mb-8 flex items-center justify-between">
+            <Button asChild variant="ghost" className="rounded-full">
+              <Link to="/#work">
+                <ArrowLeft className="mr-2 h-4 w-4" />
+                Back to portfolio
+              </Link>
+            </Button>
+            <div className="flex items-center gap-2">
+              {project.github_url && (
+                <Button asChild variant="outline" size="sm" className="rounded-full">
+                  <a href={project.github_url} target="_blank" rel="noreferrer">
+                    <Github className="mr-2 h-4 w-4" />
+                    View Code
+                  </a>
+                </Button>
+              )}
+              {project.demo_url && (
+                <Button asChild size="sm" className="rounded-full">
+                  <a href={project.demo_url} target="_blank" rel="noreferrer">
+                    <ExternalLink className="mr-2 h-4 w-4" />
+                    Live Demo
+                  </a>
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Full-width banner */}
         {project.cover_image && (
-          <div className="relative h-[50vh] lg:h-[60vh]">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.98 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+            className="mb-10 overflow-hidden rounded-2xl border border-white/10"
+          >
             <img
               src={project.cover_image}
               alt={project.title}
-              className="w-full h-full object-cover"
+              className="h-64 w-full object-cover sm:h-80"
             />
-            <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0a] via-[#0a0a0a]/50 to-transparent" />
-          </div>
-        )}
-
-        {!hideBack && (
-          <motion.div
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.5 }}
-            className="absolute top-8 left-4 sm:left-8 z-10"
-          >
-            <Link to="/">
-              <Button variant="ghost" className="glass hover:bg-white/10">
-                <ArrowLeft className="h-4 w-4 mr-2" />
-                Back
-              </Button>
-            </Link>
           </motion.div>
         )}
 
-        <div className={cn(
-          "relative px-4 sm:px-8 lg:px-16",
-          project.cover_image ? '-mt-32' : 'pt-24'
-        )}>
-          <div className="max-w-4xl mx-auto">
-            <motion.div
-              initial={{ opacity: 0, y: 30 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: 0.2 }}
+        {/* Header */}
+        <motion.div
+          initial={{ opacity: 0, y: 24 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
+        >
+          <p className="text-sm text-muted-foreground">
+            Prajwal Parajuli · {timelineLabel}
+          </p>
+          <h1 className="mt-3 font-display text-4xl font-semibold tracking-tight text-foreground sm:text-5xl">
+            {project.title}
+          </h1>
+
+          {project.tags.length > 0 && (
+            <div className="mt-4 flex flex-wrap gap-2">
+              {project.tags.map((tag) => (
+                <Badge key={tag} variant="outline" className="border-white/10 bg-white/5">
+                  {tag}
+                </Badge>
+              ))}
+            </div>
+          )}
+        </motion.div>
+
+        {/* Divider */}
+        <div className="my-10 border-t border-white/10" />
+
+        {/* Structured case study sections */}
+        <div className="space-y-10">
+          {/* Overview */}
+          {narrative.summary && (
+            <motion.section
+              initial={{ opacity: 0, y: 16 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
             >
-              <div className="flex flex-wrap gap-2 mb-4">
-                {project.tags.map((tag) => (
-                  <Badge 
-                    key={tag} 
-                    variant="outline"
-                    className="bg-white/5 font-mono"
-                  >
-                    {tag}
-                  </Badge>
+              <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                Overview
+              </h2>
+              <p className="mt-3 text-base leading-7 text-foreground/90">
+                {narrative.summary}
+              </p>
+            </motion.section>
+          )}
+
+          {/* Key Results */}
+          {narrative.outcomes.length > 0 && (
+            <motion.section
+              initial={{ opacity: 0, y: 16 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.4, delay: 0.05, ease: [0.22, 1, 0.36, 1] }}
+            >
+              <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                Key Results
+              </h2>
+              <ul className="mt-3 space-y-2">
+                {narrative.outcomes.map((outcome) => (
+                  <li key={outcome} className="flex items-start gap-3 text-base leading-7 text-foreground/90">
+                    <span className="mt-2.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-accent" />
+                    {outcome}
+                  </li>
                 ))}
-              </div>
+              </ul>
+            </motion.section>
+          )}
 
-              <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold gradient-text mb-4">
-                {project.title}
-              </h1>
+          {/* What I Built */}
+          {narrative.buildDetails.length > 0 && (
+            <motion.section
+              initial={{ opacity: 0, y: 16 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.4, delay: 0.1, ease: [0.22, 1, 0.36, 1] }}
+            >
+              <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                What I Built
+              </h2>
+              <ul className="mt-3 space-y-2">
+                {narrative.buildDetails.map((detail) => (
+                  <li key={detail} className="flex items-start gap-3 text-base leading-7 text-foreground/90">
+                    <span className="mt-2.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-white/30" />
+                    {detail}
+                  </li>
+                ))}
+              </ul>
+            </motion.section>
+          )}
 
-              <div className="flex items-center gap-4 text-sm text-muted-foreground mb-4 flex-wrap font-mono">
-                <span className="flex items-center gap-2">
-                  <Calendar className="h-4 w-4" />
-                  {format(new Date(project.created_at), 'MMMM yyyy')}
-                </span>
-                <span className="flex items-center gap-2">
-                  <Clock className="h-4 w-4" />
-                  {getReadTimeLabel(project.description)}
-                </span>
-              </div>
+          {/* Full Description (prose) */}
+          {safeDescription.trim() && (
+            <motion.section
+              initial={{ opacity: 0, y: 16 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.4, delay: 0.15, ease: [0.22, 1, 0.36, 1] }}
+            >
+              <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                Project Details
+              </h2>
+              <div
+                className="project-prose mt-4 max-w-none"
+                dangerouslySetInnerHTML={{ __html: safeDescription }}
+              />
+            </motion.section>
+          )}
+        </div>
 
-              {project.ask_me_about?.trim() && (
-                <p className="text-sm text-muted-foreground italic mb-8 border-l-2 border-primary/50 pl-4">
-                  {project.ask_me_about.trim()}
-                </p>
-              )}
+        {/* Divider */}
+        <div className="my-12 border-t border-white/10" />
 
-              <div className="flex flex-wrap items-center gap-3 mb-12">
-                {project.github_url && (
-                  <>
-                    <a
-                      href={project.github_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      <Button className="gap-2">
-                        <Github className="h-4 w-4" />
-                        View Code
-                      </Button>
-                    </a>
-                    <a
-                      href={gitpodUrl(project.github_url)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      <Button variant="outline" className="gap-2">
-                        <Terminal className="h-4 w-4" />
-                        Open in Gitpod
-                      </Button>
-                    </a>
-                    {cloneCmd && (
-                      <Button variant="outline" className="gap-2" onClick={handleCopy}>
-                        {copied ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
-                        {copied ? 'Copied!' : 'Copy clone'}
-                      </Button>
-                    )}
-                  </>
-                )}
-                {project.demo_url && (
-                  <a
-                    href={project.demo_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    <Button variant="outline" className="gap-2">
-                      <ExternalLink className="h-4 w-4" />
-                      Live Demo
-                    </Button>
-                  </a>
-                )}
-              </div>
-            </motion.div>
+        {/* Contact CTA */}
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
+          className="rounded-2xl border border-white/10 bg-black/20 p-8 text-center"
+        >
+          <p className="text-lg font-medium text-foreground">
+            Interested in discussing this work?
+          </p>
+          <p className="mt-2 text-sm text-muted-foreground">
+            I can walk through the tradeoffs, execution choices, and what I would improve next.
+          </p>
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+            {contactEmail && (
+              <Button asChild className="rounded-full">
+                <a href={`mailto:${contactEmail}`}>
+                  <Mail className="mr-2 h-4 w-4" />
+                  Email me
+                </a>
+              </Button>
+            )}
+            <Button asChild variant="outline" className="rounded-full">
+              <a href="https://www.linkedin.com/in/prajwal-parajuli" target="_blank" rel="noreferrer">
+                <Linkedin className="mr-2 h-4 w-4" />
+                LinkedIn
+              </a>
+            </Button>
           </div>
-        </div>
-      </header>
-
-      <motion.div
-        initial={{ opacity: 0, y: 30 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6, delay: 0.4 }}
-        className="px-4 sm:px-8 lg:px-16"
-      >
-        <div className="max-w-4xl mx-auto">
-          <div 
-            className="prose prose-invert prose-lg max-w-none"
-            dangerouslySetInnerHTML={{ __html: project.description }}
-          />
-        </div>
-      </motion.div>
+        </motion.div>
+      </div>
     </article>
   )
 }

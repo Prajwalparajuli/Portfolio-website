@@ -186,10 +186,11 @@ function ParticleStream({ scrollProgress }: { scrollProgress: ReturnType<typeof 
   )
 }
 
-// Mouse-following glow effect
+// Mouse-following glow effect — color-shifting spotlight
 function MouseGlow() {
   const mouseX = useMotionValue(0)
   const mouseY = useMotionValue(0)
+  const hueShift = useMotionValue(0)
   const rafRef = useRef<number>(0)
   const isActiveRef = useRef(true)
 
@@ -197,7 +198,10 @@ function MouseGlow() {
     if (!isActiveRef.current) return
     mouseX.set(e.clientX)
     mouseY.set(e.clientY)
-  }, [mouseX, mouseY])
+    // Shift hue based on horizontal position — left side is accent, right side drifts warm
+    const normalizedX = e.clientX / window.innerWidth
+    hueShift.set(normalizedX * 50) // 0–50 degree shift
+  }, [mouseX, mouseY, hueShift])
 
   useEffect(() => {
     // Check for touch device
@@ -218,22 +222,41 @@ function MouseGlow() {
     }
   }, [updateMouse])
 
-  // Spring-smoothed values
-  const springX = useSpring(mouseX, { stiffness: 30, damping: 20 })
-  const springY = useSpring(mouseY, { stiffness: 30, damping: 20 })
+  // Springy physics — lags behind and overshoots slightly for a playful feel
+  const springX = useSpring(mouseX, { stiffness: 50, damping: 15, mass: 0.8 })
+  const springY = useSpring(mouseY, { stiffness: 50, damping: 15, mass: 0.8 })
+  const springHue = useSpring(hueShift, { stiffness: 80, damping: 20 })
 
   return (
-    <motion.div
-      className="fixed w-[600px] h-[600px] rounded-full pointer-events-none z-0"
-      style={{
-        background: 'radial-gradient(circle, hsla(var(--accent-hue), 60%, 50%, 0.08) 0%, transparent 60%)',
-        filter: 'blur(80px)',
-        x: springX,
-        y: springY,
-        translateX: '-50%',
-        translateY: '-50%',
-      }}
-    />
+    <>
+      {/* Main glow — shifts color as cursor moves across screen */}
+      <motion.div
+        className="fixed w-[500px] h-[500px] rounded-full pointer-events-none z-0"
+        style={{
+          background: useTransform(
+            springHue,
+            (h) => `radial-gradient(circle, hsla(calc(var(--accent-hue) + ${h}), 55%, 50%, 0.07) 0%, transparent 55%)`
+          ),
+          filter: 'blur(60px)',
+          x: springX,
+          y: springY,
+          translateX: '-50%',
+          translateY: '-50%',
+        }}
+      />
+      {/* Inner bright dot — small, crisp core that follows more tightly */}
+      <motion.div
+        className="fixed w-6 h-6 rounded-full pointer-events-none z-0 mix-blend-screen"
+        style={{
+          background: 'radial-gradient(circle, hsla(var(--accent-hue), 70%, 65%, 0.15) 0%, transparent 70%)',
+          filter: 'blur(4px)',
+          x: useSpring(mouseX, { stiffness: 120, damping: 18 }),
+          y: useSpring(mouseY, { stiffness: 120, damping: 18 }),
+          translateX: '-50%',
+          translateY: '-50%',
+        }}
+      />
+    </>
   )
 }
 

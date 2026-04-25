@@ -22,6 +22,8 @@ import {
   NotificationItem,
   CandidateAnswer,
   InterviewPrepNote,
+  CareerContact,
+  CareerContactInput,
   ContactTouchpoint,
   ProofOfWorkHighlight,
 } from '@/types'
@@ -83,6 +85,8 @@ type JobPostingRow = {
   source: JobPosting['source']
   external_id: string
   watchlist_id?: string | null
+  saved_job_search_id?: string | null
+  query_label?: string
   title: string
   company: string
   location: string
@@ -193,6 +197,12 @@ type CompanyWatchlistRow = {
   location_hint: string
   priority: CompanyWatchlist['priority']
   is_enabled: boolean
+  why_this_company: string
+  research_notes: string
+  recent_news: string
+  competitors: string
+  salary_notes: string
+  last_researched_at: string | null
   last_discovery_at: string | null
   last_sync_at: string | null
   last_error: string
@@ -227,6 +237,7 @@ type NotificationItemRow = {
   application_id: string | null
   job_posting_id: string | null
   company_watchlist_id: string | null
+  contact_id: string | null
   due_at: string | null
   sent_at: string | null
   created_at: string
@@ -256,15 +267,39 @@ type InterviewPrepNoteRow = {
   updated_at: string
 }
 
+type CareerContactRow = {
+  id: string
+  company_watchlist_id: string | null
+  full_name: string
+  role_title: string
+  organization_name: string
+  relationship_kind: CareerContact['relationship_kind']
+  email: string
+  linkedin_url: string
+  location: string
+  introduced_by: string
+  notes: string
+  next_follow_up_at: string | null
+  last_contact_at: string | null
+  created_at: string
+  updated_at: string
+}
+
 type ContactTouchpointRow = {
   id: string
   application_id: string | null
+  contact_id: string | null
+  company_watchlist_id: string | null
   company: string
   contact_name: string
   contact_role: string
   channel: ContactTouchpoint['channel']
+  touchpoint_kind: ContactTouchpoint['touchpoint_kind']
+  direction: ContactTouchpoint['direction']
+  subject: string
   note: string
   occurred_at: string
+  next_follow_up_at: string | null
   created_at: string
   updated_at: string
 }
@@ -584,6 +619,7 @@ export async function getSettings(): Promise<PortfolioSettings> {
       now_line: settings.now_line ?? getDefaultSettings().now_line,
       location: settings.location ?? getDefaultSettings().location,
       education: parseEducation(settings.education),
+      photo_url: settings.photo_url || '',
     }
   } catch (e) {
     console.error('Error fetching settings:', e)
@@ -1289,7 +1325,10 @@ export async function createCompanyWatchlist(
 
 export async function updateCompanyWatchlist(
   id: string,
-  patch: Partial<CompanyWatchlistInput & Pick<CompanyWatchlist, 'last_discovery_at' | 'last_sync_at' | 'last_error'>>
+  patch: Partial<
+    CompanyWatchlistInput &
+      Pick<CompanyWatchlist, 'last_discovery_at' | 'last_sync_at' | 'last_error' | 'last_researched_at'>
+  >
 ): Promise<CompanyWatchlist | null> {
   const { data, error } = await supabase
     .from('company_watchlists')
@@ -1314,6 +1353,74 @@ export async function deleteCompanyWatchlist(id: string): Promise<void> {
 
   if (error) {
     console.error('Error deleting company watchlist:', error)
+    throw error
+  }
+}
+
+export async function getCareerContacts(): Promise<CareerContact[] | null> {
+  if (!isSupabaseConfigured) return []
+  try {
+    const { data, error } = await supabase
+      .from('career_contacts')
+      .select('*')
+      .order('next_follow_up_at', { ascending: true, nullsFirst: false })
+      .order('updated_at', { ascending: false })
+
+    if (error) {
+      if (isMissingTableError(error)) return null
+      console.error('Error fetching career contacts:', error)
+      return []
+    }
+
+    return (data ?? []).map((row) => mapCareerContactRow(row as CareerContactRow))
+  } catch (error) {
+    console.error('Error fetching career contacts:', error)
+    return []
+  }
+}
+
+export async function createCareerContact(payload: CareerContactInput): Promise<CareerContact | null> {
+  const { data, error } = await supabase
+    .from('career_contacts')
+    .insert(payload)
+    .select('*')
+    .single()
+
+  if (error) {
+    console.error('Error creating career contact:', error)
+    throw error
+  }
+
+  return mapCareerContactRow(data as CareerContactRow)
+}
+
+export async function updateCareerContact(
+  id: string,
+  patch: Partial<CareerContactInput>
+): Promise<CareerContact | null> {
+  const { data, error } = await supabase
+    .from('career_contacts')
+    .update(patch)
+    .eq('id', id)
+    .select('*')
+    .single()
+
+  if (error) {
+    console.error('Error updating career contact:', error)
+    throw error
+  }
+
+  return mapCareerContactRow(data as CareerContactRow)
+}
+
+export async function deleteCareerContact(id: string): Promise<void> {
+  const { error } = await supabase
+    .from('career_contacts')
+    .delete()
+    .eq('id', id)
+
+  if (error) {
+    console.error('Error deleting career contact:', error)
     throw error
   }
 }
@@ -1680,6 +1787,8 @@ function mapJobPostingRow(row: JobPostingRow): JobPosting {
     source: row.source,
     external_id: row.external_id ?? '',
     watchlist_id: row.watchlist_id ?? null,
+    saved_job_search_id: row.saved_job_search_id ?? null,
+    query_label: row.query_label ?? '',
     title: row.title,
     company: row.company ?? '',
     location: row.location ?? '',
@@ -1819,6 +1928,12 @@ function mapCompanyWatchlistRow(row: CompanyWatchlistRow): CompanyWatchlist {
     location_hint: row.location_hint ?? '',
     priority: row.priority ?? 'medium',
     is_enabled: row.is_enabled ?? true,
+    why_this_company: row.why_this_company ?? '',
+    research_notes: row.research_notes ?? '',
+    recent_news: row.recent_news ?? '',
+    competitors: row.competitors ?? '',
+    salary_notes: row.salary_notes ?? '',
+    last_researched_at: row.last_researched_at ?? null,
     last_discovery_at: row.last_discovery_at ?? null,
     last_sync_at: row.last_sync_at ?? null,
     last_error: row.last_error ?? '',
@@ -1857,8 +1972,29 @@ function mapNotificationItemRow(row: NotificationItemRow): NotificationItem {
     application_id: row.application_id ?? null,
     job_posting_id: row.job_posting_id ?? null,
     company_watchlist_id: row.company_watchlist_id ?? null,
+    contact_id: row.contact_id ?? null,
     due_at: row.due_at ?? null,
     sent_at: row.sent_at ?? null,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  }
+}
+
+function mapCareerContactRow(row: CareerContactRow): CareerContact {
+  return {
+    id: row.id,
+    company_watchlist_id: row.company_watchlist_id ?? null,
+    full_name: row.full_name ?? '',
+    role_title: row.role_title ?? '',
+    organization_name: row.organization_name ?? '',
+    relationship_kind: row.relationship_kind ?? 'networking',
+    email: row.email ?? '',
+    linkedin_url: row.linkedin_url ?? '',
+    location: row.location ?? '',
+    introduced_by: row.introduced_by ?? '',
+    notes: row.notes ?? '',
+    next_follow_up_at: row.next_follow_up_at ?? null,
+    last_contact_at: row.last_contact_at ?? null,
     created_at: row.created_at,
     updated_at: row.updated_at,
   }
@@ -1895,12 +2031,18 @@ function mapContactTouchpointRow(row: ContactTouchpointRow): ContactTouchpoint {
   return {
     id: row.id,
     application_id: row.application_id ?? null,
+    contact_id: row.contact_id ?? null,
+    company_watchlist_id: row.company_watchlist_id ?? null,
     company: row.company ?? '',
     contact_name: row.contact_name ?? '',
     contact_role: row.contact_role ?? '',
     channel: row.channel ?? 'email',
+    touchpoint_kind: row.touchpoint_kind ?? 'note',
+    direction: row.direction ?? 'outbound',
+    subject: row.subject ?? '',
     note: row.note ?? '',
     occurred_at: row.occurred_at,
+    next_follow_up_at: row.next_follow_up_at ?? null,
     created_at: row.created_at,
     updated_at: row.updated_at,
   }

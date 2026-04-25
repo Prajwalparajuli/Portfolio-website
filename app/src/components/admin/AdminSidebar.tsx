@@ -1,111 +1,92 @@
 import { useAuth } from '@/components/auth/AuthProvider'
 import { Button } from '@/components/ui/button'
-import { 
-  LayoutDashboard, 
-  FolderKanban, 
-  Tags, 
-  Settings, 
+import {
   Activity,
-  LogOut,
+  BellRing,
+  BriefcaseBusiness,
+  Compass,
   ExternalLink,
   FileText,
-  BriefcaseBusiness,
-  Send,
-  BellRing,
-  Building2,
-  NotebookPen
+  FolderKanban,
+  LayoutDashboard,
+  LogOut,
+  NotebookPen,
+  Settings,
+  Tags,
+  Users,
+  Wrench,
 } from 'lucide-react'
 import { Link, useLocation } from 'react-router-dom'
 import { cn } from '@/lib/utils'
-import { motion } from 'framer-motion'
 import { getAdminPath } from '@/lib/adminConfig'
 
-const navItems = [
-  { href: getAdminPath(), label: 'Dashboard', icon: LayoutDashboard },
-  { href: getAdminPath('projects'), label: 'Projects', icon: FolderKanban },
-  { href: getAdminPath('skills'), label: 'Skills', icon: Tags },
-  { href: getAdminPath('resume'), label: 'Resume', icon: FileText },
-  { href: getAdminPath('jobs'), label: 'Jobs', icon: BriefcaseBusiness },
-  { href: getAdminPath('watchlists'), label: 'Watchlists', icon: Building2 },
-  { href: getAdminPath('applications'), label: 'Applications', icon: Send },
-  { href: getAdminPath('answers'), label: 'Answer Bank', icon: NotebookPen },
+type NavItem = {
+  href: string
+  label: string
+  icon: typeof LayoutDashboard
+}
+
+const primaryItems: NavItem[] = [
+  { href: getAdminPath('jobs'), label: 'Discover', icon: Compass },
+  { href: getAdminPath('applications'), label: 'Applications', icon: BriefcaseBusiness },
+  { href: getAdminPath('today'), label: 'Today', icon: LayoutDashboard },
+]
+
+const utilityItems: NavItem[] = [
   { href: getAdminPath('inbox'), label: 'Inbox', icon: BellRing },
-  { href: getAdminPath('settings'), label: 'Settings', icon: Settings },
+  { href: getAdminPath('watchlists'), label: 'Watchlists', icon: Wrench },
+  { href: getAdminPath('contacts'), label: 'Contacts', icon: Users },
   { href: getAdminPath('activity'), label: 'Activity', icon: Activity },
+]
+
+const profileItems: NavItem[] = [
+  { href: getAdminPath('resume'), label: 'Resume', icon: FileText },
+  { href: getAdminPath('projects'), label: 'Projects', icon: FolderKanban },
+  { href: getAdminPath('answers'), label: 'Answer Bank', icon: NotebookPen },
+  { href: getAdminPath('skills'), label: 'Skills', icon: Tags },
+  { href: getAdminPath('settings'), label: 'Settings', icon: Settings },
 ]
 
 export function AdminSidebar() {
   const { signOut, user } = useAuth()
-  const location = useLocation()
-  const pathname = location.pathname
+  const { pathname } = useLocation()
 
   return (
-    <aside className="w-64 glass-strong flex flex-col border-r border-border/50">
-      <div className="p-6 border-b border-border/50">
-        <motion.h1 
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="text-xl font-display font-semibold gradient-text"
-        >
-          Admin Canvas
-        </motion.h1>
-        <p className="text-xs text-muted-foreground mt-1 font-mono">
+    <aside className="flex w-60 flex-col border-r border-border/50 bg-background/95 backdrop-blur">
+      <div className="border-b border-border/50 px-4 py-4">
+        <p className="text-lg font-semibold text-foreground">Career Cockpit</p>
+        <p className="mt-1 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+          Private application workflow
+        </p>
+        <p className="mt-2 truncate text-xs text-muted-foreground">
           {user?.email ?? 'Local dev bypass'}
         </p>
       </div>
 
-      <nav className="flex-1 p-4 space-y-1">
-        {navItems.map((item, index) => {
-          const Icon = item.icon
-          const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`)
-          
-          return (
-            <motion.div
-              key={item.href}
-              initial={{ opacity: 0, x: -10 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: index * 0.05 }}
-            >
-              <Link
-                to={item.href}
-                className={cn(
-                  'flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 relative overflow-hidden',
-                  isActive
-                    ? 'bg-accent/15 text-accent border border-accent/20'
-                    : 'text-muted-foreground hover:bg-surface hover:text-foreground border border-transparent'
-                )}
-              >
-                <Icon className={cn(
-                  'h-4 w-4 transition-colors',
-                  isActive ? 'text-accent' : ''
-                )} />
-                <span className="relative z-10">{item.label}</span>
-                {isActive && (
-                  <motion.div
-                    layoutId="activeNav"
-                    className="absolute inset-0 bg-accent/5 rounded-xl"
-                    transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-                  />
-                )}
-              </Link>
-            </motion.div>
-          )
-        })}
-      </nav>
+      <div className="flex-1 space-y-4 overflow-y-auto px-3 py-4">
+        <div className="space-y-1">
+          {primaryItems.map((item) => (
+            <SidebarLink key={item.href} item={item} pathname={pathname} />
+          ))}
+        </div>
 
-      <div className="p-4 border-t border-border/50 space-y-2">
+        <CompactGroup title="Utilities" items={utilityItems} pathname={pathname} />
+        <CompactGroup title="Profile" items={profileItems} pathname={pathname} />
+      </div>
+
+      <div className="space-y-2 border-t border-border/50 px-3 py-3">
         <Link
           to="/"
           target="_blank"
-          className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-muted-foreground hover:bg-surface hover:text-foreground transition-all duration-200 group"
+          className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-surface hover:text-foreground"
         >
-          <ExternalLink className="h-4 w-4 group-hover:text-accent transition-colors" />
+          <ExternalLink className="h-4 w-4" />
           View Site
         </Link>
-        
+
         <Button
           variant="ghost"
-          className="w-full justify-start gap-3 text-muted-foreground hover:text-foreground hover:bg-surface rounded-xl"
+          className="w-full justify-start gap-2 rounded-lg px-3 text-muted-foreground hover:bg-surface hover:text-foreground"
           onClick={() => {
             if (user) {
               signOut()
@@ -120,4 +101,62 @@ export function AdminSidebar() {
       </div>
     </aside>
   )
+}
+
+function CompactGroup({
+  title,
+  items,
+  pathname,
+}: {
+  title: string
+  items: NavItem[]
+  pathname: string
+}) {
+  const isActive = items.some((item) => isPathActive(pathname, item.href))
+
+  return (
+    <details open={isActive} className="rounded-xl border border-white/10 bg-black/10">
+      <summary className="cursor-pointer list-none px-3 py-2 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+        {title}
+      </summary>
+      <div className="space-y-1 border-t border-white/10 px-2 py-2">
+        {items.map((item) => (
+          <SidebarLink key={item.href} item={item} pathname={pathname} compact />
+        ))}
+      </div>
+    </details>
+  )
+}
+
+function SidebarLink({
+  item,
+  pathname,
+  compact = false,
+}: {
+  item: NavItem
+  pathname: string
+  compact?: boolean
+}) {
+  const Icon = item.icon
+  const isActive = isPathActive(pathname, item.href)
+
+  return (
+    <Link
+      to={item.href}
+      className={cn(
+        'flex items-center gap-3 rounded-lg border px-3 py-2 text-sm transition-colors',
+        compact ? 'text-sm' : 'font-medium',
+        isActive
+          ? 'border-accent/20 bg-accent/10 text-foreground'
+          : 'border-transparent text-muted-foreground hover:bg-surface hover:text-foreground'
+      )}
+    >
+      <Icon className={cn('h-4 w-4', isActive ? 'text-accent' : 'text-muted-foreground')} />
+      <span>{item.label}</span>
+    </Link>
+  )
+}
+
+function isPathActive(pathname: string, href: string): boolean {
+  return pathname === href || pathname.startsWith(`${href}/`)
 }

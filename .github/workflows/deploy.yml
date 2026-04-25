@@ -44,7 +44,6 @@ jobs:
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
           VITE_UNSPLASH_ACCESS_KEY: ${{ secrets.VITE_UNSPLASH_ACCESS_KEY }}
           VITE_ADMIN_PATH: ${{ vars.VITE_ADMIN_PATH }}
-          VITE_ADMIN_ALLOWED_EMAILS: ${{ vars.VITE_ADMIN_ALLOWED_EMAILS }}
           VITE_CONTACT_EMAIL: ${{ vars.VITE_CONTACT_EMAIL }}
         run: npm run build
 

@@ -1,9 +1,9 @@
 # Supabase Recovery Toolkit
 
-This folder contains the checked-in helpers for restoring the new Supabase project and validating whether the backup contains the app data you need.
+This folder contains checked-in helpers for restoring the Supabase project and validating whether a local backup contains the app data you need. Backup files are intentionally ignored and should stay local-only.
 
 ## Files
-- `db_cluster-16-12-2025@08-12-12.backup`: downloaded Supabase dashboard backup
+- `*.backup`: downloaded Supabase dashboard backups; keep these local-only
 - `restore-backup.ps1`: runs the backup through `psql`
 - `run-validation.ps1`: runs the validation queries after restore
 - `validate.sql`: safe validation queries for public tables, storage, and auth users
@@ -55,8 +55,7 @@ If the validation output shows that the backup did not restore your portfolio ta
 
 That script includes:
 - `app/supabase_schema.sql`
-- `app/supabase_migrations/001_add_ask_me_about.sql`
-- `app/supabase_migrations/002_admin_access_hardening.sql`
+- `app/supabase_migrations/001_add_ask_me_about.sql` through `012_google_jobs_source_expansion.sql`
 
 After fallback rebuild, manually repopulate:
 - projects
@@ -74,9 +73,9 @@ After fallback rebuild, manually repopulate:
    - set `VITE_SUPABASE_URL`
    - set `VITE_SUPABASE_ANON_KEY`
    - set `VITE_UNSPLASH_ACCESS_KEY` if still used
-   - set `VITE_ADMIN_ALLOWED_EMAILS`
-   - do not set `VITE_GEMINI_API_KEY`; keep Gemini only in Supabase function secrets
    - confirm `VITE_ADMIN_PATH`
    - confirm `VITE_CONTACT_EMAIL`
-   - remove `VITE_ADMIN_SECRET_KEY`
+   - do not set `VITE_ADMIN_ALLOWED_EMAILS` or `VITE_ADMIN_SECRET_KEY`
+   - do not set `VITE_GEMINI_API_KEY`; keep Gemini only in Supabase function secrets
+   - keep service-role keys, cron secrets, database URLs, Resend keys, Adzuna keys, and SerpApi keys out of GitHub Pages variables
 6. Redeploy GitHub Pages and test the public site plus admin CRUD.
