@@ -177,8 +177,27 @@ function formatContactPart(part: string): { icon: ReactNode; text: string } {
 }
 
 function ContactLineDisplay({ line }: { line: string }) {
-  const parts = line.split(/(?: {2,}|\||•)/).filter(Boolean)
-  if (parts.length <= 1) return <span>{line}</span> // fallback if not neatly separated
+  if (!line?.trim()) return null
+
+  // Fallback split for well-formatted lines
+  let parts = line.split(/(?: {2,}|\||•)/).filter(Boolean).map(s => s.trim())
+
+  // If user used single spaces, parts will be length 1. Let's intelligently extract.
+  if (parts.length === 1) {
+    const s = line.trim()
+    const emailMatch = s.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/)?.[0]
+    const githubMatch = s.match(/github\.com\/[^\s|•]*/i)?.[0]
+    const linkedinMatch = s.match(/linkedin\.com\/[^\s|•]*/i)?.[0]
+    const phoneMatch = s.match(/(?:\+\d{1,3}\s?)?(?:\(\d{3}\)|\d{3})[-.\s]?\d{3}[-.\s]?\d{4}/)?.[0]
+
+    let location = s
+    if (emailMatch) location = location.replace(emailMatch, '')
+    if (githubMatch) location = location.replace(githubMatch, '')
+    if (linkedinMatch) location = location.replace(linkedinMatch, '')
+    if (phoneMatch) location = location.replace(phoneMatch, '')
+
+    parts = [location.trim(), emailMatch, githubMatch, linkedinMatch, phoneMatch].filter(Boolean) as string[]
+  }
 
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '12px', alignItems: 'center' }}>
@@ -476,14 +495,14 @@ export function ResumePreview({
 
                       {/* Bullets */}
                       {(editable || item.bullets.filter(Boolean).length > 0) && (
-                        <ul style={{ paddingLeft: '1.15em', marginTop: 3, marginBottom: 0 }}>
+                        <ul style={{ paddingLeft: '1.25em', marginTop: 3, marginBottom: 0, listStyleType: 'disc' }}>
                           {item.bullets.map((b, j) => {
                             if (!editable && !b) return null
                             return (
                               <li key={j} className="bul-row"
-                                style={{ marginBottom: 2, display: 'flex', alignItems: 'flex-start', gap: 2 }}>
+                                style={{ marginBottom: 2 }}>
                                 {editable ? (
-                                  <>
+                                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 4 }}>
                                     <InlineEdit
                                       value={b}
                                       onChange={v => patchBullet(i, j, v)}
@@ -495,8 +514,10 @@ export function ResumePreview({
                                       style={{ opacity: 0, transition: 'opacity 0.15s', background: 'none', border: 'none', fontSize: 10, cursor: 'pointer', color: '#dc2626', padding: '1px 2px', flexShrink: 0 }}>
                                       ×
                                     </button>
-                                  </>
-                                ) : b}
+                                  </div>
+                                ) : (
+                                  <span style={{ display: 'inline-block' }}>{b}</span>
+                                )}
                               </li>
                             )
                           })}

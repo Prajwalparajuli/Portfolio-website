@@ -219,7 +219,13 @@ async function callGemini(task: TaskName, prompt: string, maxOutputTokens: numbe
     candidates?: { content?: { parts?: { text?: string }[] } }[]
   }
 
-  return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? ''
+  let rawText = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? ''
+  
+  // Post-processing: Rigorously destroy any [X] or [X]% that the AI hallucinates despite the prompt.
+  rawText = rawText.replace(/\[X\]%/g, 'significant improvement')
+  rawText = rawText.replace(/\[X\]/g, 'measurable results')
+
+  return rawText
 }
 
 async function handleGenerateBullets(payload: { project: ResumeAiProject }) {
@@ -234,11 +240,10 @@ Write EXACTLY 4 resume bullet points for the project below. Follow these rules s
 RULES:
 - Each bullet starts with a past-tense action verb (Built, Developed, Engineered, Designed, Optimized, Analyzed, Evaluated, Implemented, Deployed, Processed, Automated, Constructed)
 - STAR formula: [Verb] + [What you did + tools/tech + scale] + [quantified result or outcome]
-- DO NOT use "[X]", "[X]%", or any placeholders. If you don't have a specific metric from the description, focus on the technical achievement or qualitative outcome. Do not invent numbers.
-- If the project description already contains bullet points, refine and improve those existing bullets to fit the STAR formula instead of making up new ones.
+- CRITICAL RULE: ABSOLUTELY NO PLACEHOLDERS. NEVER use "[X]", "[X]%", "[Metric]", or any bracketed text. If you don't have a specific metric from the description, describe the outcome qualitatively (e.g., "significantly improved performance" instead of "achieved [X]% performance").
 - 80-175 characters per bullet - no shorter, no longer
 - NEVER start with "I", "We", "Responsible for", "Helped", "Utilized", "Leveraged", or "Used X to"
-- Use numbers already in the description whenever possible
+- Use numbers already in the description whenever possible. If none exist, do not invent them.
 
 COVER THESE 4 ASPECTS IN ORDER:
 Line 1: What was built - the system/model/pipeline name + core algorithms + tech stack
