@@ -116,12 +116,14 @@ export async function generateResumeSummary(
 export async function improveResumeBullet(
   bullet: string,
   projectTitle: string,
-  tags: string[]
+  tags: string[],
+  orphanedSkills?: string[]
 ): Promise<string> {
   const result = await invokeResumeAi<{ bullet: string }>('improve_bullet', {
     bullet,
     projectTitle,
     tags,
+    orphanedSkills,
   })
 
   return result.bullet
@@ -140,13 +142,15 @@ export async function tailorResumeToJob(
   currentSummary: string,
   expItems: ExperienceItem[],
   projects: Project[],
-  skills: Skill[]
+  skills: Skill[],
+  orphanedSkills?: string[]
 ): Promise<{ summary: string; bullets: Record<number, string[]> }> {
   return invokeResumeAi<{ summary: string; bullets: Record<number, string[]> }>('tailor_resume', {
     jd,
     currentSummary,
     entries: normalizeExperienceItems(expItems, projects),
     skills: skills.map((skill) => skill.name),
+    orphanedSkills,
   })
 }
 

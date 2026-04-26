@@ -323,10 +323,11 @@ IMPORTANT: Output ONLY the summary paragraph. No labels. No headings.`
   return { text: text.trim() }
 }
 
-async function handleImproveBullet(payload: { bullet: string; projectTitle: string; tags?: string[] }) {
+async function handleImproveBullet(payload: { bullet: string; projectTitle: string; tags?: string[]; orphanedSkills?: string[] }) {
   const bullet = asString(payload.bullet, 'bullet')
   const projectTitle = asString(payload.projectTitle, 'projectTitle')
   const tags = asStringArray(payload.tags, 'tags')
+  const orphanedSkills = asStringArray(payload.orphanedSkills || [], 'orphanedSkills')
 
   const prompt = `You are an expert resume writer. Rewrite the resume bullet below to be stronger and more impactful.
 
@@ -336,6 +337,7 @@ RULES:
 3. DO NOT use "[X]" or "[X]%" placeholders. If a metric is missing, emphasize the qualitative impact or technical complexity.
 4. Output must be 80-175 characters.
 5. NEVER start with "I", "We", "Responsible for", "Leveraged", or "Utilized".
+${orphanedSkills.length > 0 ? `6. IMPORTANT: Try to naturally incorporate one or more of these missing skills if relevant: ${orphanedSkills.join(', ')}` : ''}
 
 Project: ${projectTitle}
 Technologies: ${tags.join(', ')}
@@ -379,11 +381,13 @@ async function handleTailorResume(payload: {
   currentSummary?: string
   entries?: ResumeAiExperienceEntry[]
   skills?: string[]
+  orphanedSkills?: string[]
 }) {
   const jd = asString(payload.jd, 'jd').slice(0, 2000)
   const currentSummary = typeof payload.currentSummary === 'string' ? payload.currentSummary.trim() : ''
   const entries = asEntryArray(payload.entries)
   const skills = asStringArray(payload.skills, 'skills')
+  const orphanedSkills = asStringArray(payload.orphanedSkills || [], 'orphanedSkills')
 
   const entriesSnapshot = entries
     .map((entry) => {
@@ -408,6 +412,7 @@ RULES:
    - For highly relevant entries, expand them to 4-6 detailed bullets to maximize keyword matches.
    - For somewhat relevant entries, use 3-4 bullets.
    - For irrelevant or older entries, condense them to 1-2 short bullets just to show continuous experience.
+${orphanedSkills.length > 0 ? `8. INCORPORATE MISSING SKILLS: The candidate has these skills but hasn't mentioned them in bullets. Find a natural way to inject these into the bullets if they align with the JD: ${orphanedSkills.join(', ')}` : ''}
 
 JOB DESCRIPTION:
 ${jd}

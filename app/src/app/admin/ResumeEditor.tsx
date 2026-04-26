@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars, no-useless-escape */
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -17,7 +17,8 @@ import {
 import {
   getSettings, getAllProjects, getSkills, getJobPostings,
   getResumeWorkspace, saveResumeVariant, createResumeVariant, deleteResumeVariant,
-  syncCandidateProfileFromSettings, isSupabaseConfigured, getApplications, updateApplication
+  syncCandidateProfileFromSettings, isSupabaseConfigured, getApplications, updateApplication,
+  createSkill
 } from '@/lib/supabase'
 import { ApplicationRecord, JobPosting, PortfolioSettings } from '@/types'
 import { Project } from '@/types'
@@ -777,9 +778,10 @@ interface ExperienceItemEditorProps {
   onRemove: () => void
   index: number
   geminiKey?: string
+  orphanedSkillsNames?: string[]
 }
 
-function ExperienceItemEditor({ item, projects, onUpdate, onRemove, index, geminiKey }: ExperienceItemEditorProps) {
+function ExperienceItemEditor({ item, projects, onUpdate, onRemove, index, geminiKey, orphanedSkillsNames = [] }: ExperienceItemEditorProps) {
   const [expanded, setExpanded] = useState(index === 0)
   const [suggesting, setSuggesting] = useState(false)
   const [subtitling, setSubtitling] = useState(false)
@@ -826,7 +828,7 @@ function ExperienceItemEditor({ item, projects, onUpdate, onRemove, index, gemin
     if (!geminiKey) return
     const tags = linkedProject?.tags ?? []
     const title = displayTitle
-    const improved = await improveResumeBullet(bullet, title, tags)
+    const improved = await improveResumeBullet(bullet, title, tags, orphanedSkillsNames)
     const bullets = [...item.bullets]
     bullets[idx] = improved
     onUpdate({ ...item, bullets })
@@ -1146,6 +1148,28 @@ export function AdminResumeEditor() {
   const [atsMatchKeywords, setAtsMatchKeywords] = useState<{ found: string[]; missing: string[] } | null>(null)
   const [atsRedFlags, setAtsRedFlags] = useState<string[]>([])
   const [analyzingAts, setAnalyzingAts] = useState(false)
+
+  // Quick skill add
+  const [newSkillName, setNewSkillName] = useState('')
+  const [addingSkill, setAddingSkill] = useState(false)
+
+  // Derived state for orphaned skills
+  const orphanedSkillsNames = useMemo(() => {
+    if (!resume || !skills) return []
+    const skillsSection = resume.sections.find(s => s.type === 'skills') as import('@/types/resume').ResumeSkillsSection | undefined
+    const expSection = resume.sections.find(s => s.type === 'experience') as import('@/types/resume').ResumeExperienceSection | undefined
+    if (!skillsSection || !expSection) return []
+    
+    const includedSkillObjs = skillsSection.includedIds === 'all' 
+      ? skills 
+      : skills.filter(sk => Array.isArray(skillsSection.includedIds) && skillsSection.includedIds.includes(sk.id))
+      
+    const allBulletsText = expSection.items.flatMap(i => i.bullets).join(' ').toLowerCase()
+    
+    return includedSkillObjs
+      .filter(sk => !allBulletsText.includes(sk.name.toLowerCase()))
+      .map(sk => sk.name)
+  }, [resume, skills])
 
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const hydratedSelectedJobKeyRef = useRef<string | null>(null)
@@ -1687,7 +1711,7 @@ export function AdminResumeEditor() {
     try {
       const expItems = expSection?.items ?? []
       const currentSummary = summSection?.text ?? ''
-      const { summary, bullets } = await tailorResumeToJob(jdText, currentSummary, expItems, projects, skills)
+      const { summary, bullets } = await tailorResumeToJob(jdText, currentSummary, expItems, projects, skills, orphanedSkillsNames)
       const nextResume: ResumeContent = {
         ...resume,
         sections: resume.sections.map((section) => {
@@ -2767,6 +2791,7 @@ export function AdminResumeEditor() {
                   onUpdate={updated => updateExpItem(i, updated)}
                   onRemove={() => removeExpItem(i)}
                   geminiKey={GEMINI_KEY}
+                  orphanedSkillsNames={orphanedSkillsNames}
                 />
               ))}
 
@@ -2848,36 +2873,23 @@ export function AdminResumeEditor() {
               </div>
               
               {/* Orphaned Skills Warning */}
-              {(() => {
-                const includedSkillObjs = skillsSection?.includedIds === 'all' 
-                  ? skills 
-                  : skills.filter(sk => Array.isArray(skillsSection?.includedIds) && skillsSection.includedIds.includes(sk.id))
-                  
-                const allBulletsText = (resume?.sections.find(s => s.type === 'experience') as import('@/types/resume').ResumeExperienceSection)
-                  ?.items.flatMap(i => i.bullets).join(' ').toLowerCase() || ''
-                  
-                const orphaned = includedSkillObjs.filter(sk => !allBulletsText.includes(sk.name.toLowerCase()))
-                
-                if (orphaned.length === 0) return null
-                
-                return (
-                  <div className="rounded-md bg-yellow-950/30 border border-yellow-800/30 px-3 py-2 space-y-1">
-                    <Label className="text-xs font-semibold text-yellow-300 flex items-center gap-1.5">
-                      Orphaned Skills Detected
-                    </Label>
-                    <p className="text-[11px] text-yellow-200/80 leading-snug">
-                      The following skills are included in your Skills section but never mentioned in your Project/Experience bullets. Consider adding them to a bullet to pass ATS verification:
-                    </p>
-                    <div className="flex flex-wrap gap-1.5 pt-1">
-                      {orphaned.map(sk => (
-                        <span key={sk.id} className="text-[10px] bg-yellow-500/10 text-yellow-300 border border-yellow-500/20 px-1.5 py-0.5 rounded">
-                          {sk.name}
-                        </span>
-                      ))}
-                    </div>
+              {orphanedSkillsNames.length > 0 && (
+                <div className="rounded-md bg-yellow-950/30 border border-yellow-800/30 px-3 py-2 space-y-1">
+                  <Label className="text-xs font-semibold text-yellow-300 flex items-center gap-1.5">
+                    Orphaned Skills Detected
+                  </Label>
+                  <p className="text-[11px] text-yellow-200/80 leading-snug">
+                    The following skills are included in your Skills section but never mentioned in your Project/Experience bullets. Consider adding them to a bullet to pass ATS verification (or use AI Improve which will auto-incorporate them):
+                  </p>
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {orphanedSkillsNames.map(name => (
+                      <span key={name} className="text-[10px] bg-yellow-500/10 text-yellow-300 border border-yellow-500/20 px-1.5 py-0.5 rounded">
+                        {name}
+                      </span>
+                    ))}
                   </div>
-                )
-              })()}
+                </div>
+              )}
 
               <div className="space-y-1">
                 <Label className="text-xs text-muted-foreground">Include skills</Label>
@@ -2919,6 +2931,59 @@ export function AdminResumeEditor() {
                       </button>
                     )
                   })}
+                </div>
+                
+                <div className="flex gap-2 mt-2 max-w-sm">
+                  <Input 
+                    placeholder="Add a new skill (e.g. R, PostgreSQL)" 
+                    className="h-8 text-xs bg-black/40"
+                    value={newSkillName}
+                    onChange={e => setNewSkillName(e.target.value)}
+                    onKeyDown={async e => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        if (!newSkillName.trim() || addingSkill) return
+                        setAddingSkill(true)
+                        try {
+                          const s = await createSkill(newSkillName.trim(), 'Other', '#475569')
+                          if (s) {
+                            setSkills(prev => [...prev, s])
+                            if (skillsSection?.includedIds !== 'all') {
+                              updateSection('skills', { includedIds: [...(skillsSection?.includedIds as string[] || []), s.id] })
+                            }
+                            setNewSkillName('')
+                          }
+                        } finally {
+                          setAddingSkill(false)
+                        }
+                      }
+                    }}
+                  />
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    className="h-8 text-xs"
+                    disabled={!newSkillName.trim() || addingSkill}
+                    onClick={async () => {
+                      if (!newSkillName.trim() || addingSkill) return
+                      setAddingSkill(true)
+                      try {
+                        const s = await createSkill(newSkillName.trim(), 'Other', '#475569')
+                        if (s) {
+                          setSkills(prev => [...prev, s])
+                          if (skillsSection?.includedIds !== 'all') {
+                            updateSection('skills', { includedIds: [...(skillsSection?.includedIds as string[] || []), s.id] })
+                          }
+                          setNewSkillName('')
+                        }
+                      } finally {
+                        setAddingSkill(false)
+                      }
+                    }}
+                  >
+                    {addingSkill ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3 mr-1" />}
+                    Add
+                  </Button>
                 </div>
               </div>
             </div>
