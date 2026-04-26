@@ -300,11 +300,12 @@ async function handleGenerateSummary(payload: ResumeAiRequest['payload'] & {
 Write a professional resume summary of exactly 3-4 sentences (70-100 words total). It must:
 1. Sentence 1: Lead with degree or title + institution + specialties
 2. Sentence 2: Highlight core technical skills naturally
-3. Sentence 3: Include a concrete achievement or metric (use "[X]%" or "[metric]" placeholder if unknown)
+3. Sentence 3: Include a concrete achievement or qualitative impact
 4. Sentence 4: End with the value or impact the candidate brings to employers
 
 Rules:
 - Write in third person. Do not use "I" or "My"
+- NEVER use placeholders like "[X]%" or "[metric]". If a metric is unknown, describe the impact qualitatively.
 - Use ATS keywords naturally
 - Sound human and confident, not generic
 - Do not use phrases like "results-driven", "passionate team player", or "hard worker"

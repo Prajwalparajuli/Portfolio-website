@@ -200,18 +200,18 @@ IMPORTANT: Output EXACTLY 4 lines. Each line is one bullet. No numbering. No das
   return bullets
 }
 
-/** AI-written summary using all portfolio context */
+/** AI-written summary using all portfolio context (Local Fallback) */
 async function callGeminiForSummary(
   s: PortfolioSettings,
-  skills: Skill[],
-  projects: Project[],
+  includedSkills: Skill[],
+  includedProjects: Project[],
   expItems: ExperienceItem[],
   apiKey: string
 ): Promise<string> {
   const edu = s.education[0]
   const degree = edu ? `${edu.title} at ${edu.issuer} (${edu.date})` : ''
-  const topSkills = skills.slice(0, 8).map(sk => sk.name).join(', ')
-  const projTitles = projects.slice(0, 4).map(p => p.title).join(', ')
+  const topSkills = includedSkills.slice(0, 12).map(sk => sk.name).join(', ')
+  const projTitles = includedProjects.slice(0, 4).map(p => p.title).join(', ')
   // Grab 1 bullet from each project item for context
   const sampleBullets = expItems
     .slice(0, 3)
@@ -223,11 +223,12 @@ async function callGeminiForSummary(
 
 Write a professional resume summary of exactly 3–4 sentences (70–100 words total). It must:
 1. Sentence 1: Lead with degree/title + institution + specialties (ML, NLP, deep learning, etc.)
-2. Sentence 2: Highlight core technical skills from the list below, naturally embedded
-3. Sentence 3: Include a concrete achievement or metric (use "[X]%" or "[metric]" placeholder if unknown)
+2. Sentence 2: Highlight core technical skills exclusively from the list below, naturally embedded
+3. Sentence 3: Include a concrete achievement or qualitative impact
 4. Sentence 4: End with the value/impact the candidate brings to employers
 Rules:
 - Write in third person, past/present tense — NO "I" or "My"
+- NEVER use placeholders like "[X]%" or "[metric]". If a metric is unknown, describe the impact qualitatively.
 - Use ATS keywords naturally (do not stuff)
 - Sound human and confident, not generic
 - NO phrases like "results-driven", "passionate team player", "hard worker"
@@ -1662,7 +1663,13 @@ export function AdminResumeEditor() {
     setSummaryGenerating(true)
     try {
       const expItems = expSection?.items ?? []
-      const text = await generateResumeSummary(settings, skills, projects, expItems)
+      const includedProjectIds = expItems.map(it => it.kind === 'project' ? (it as ProjectExperienceItem).projectId : null).filter(Boolean)
+      const includedProjects = projects.filter(p => includedProjectIds.includes(p.id))
+      const includedSkills = skillsSection?.includedIds === 'all'
+        ? skills
+        : skills.filter(s => (skillsSection?.includedIds as string[] | undefined || []).includes(s.id))
+
+      const text = await generateResumeSummary(settings, includedSkills, includedProjects, expItems)
       updateSection('summary', { text })
     } catch (e) {
       // show error in save msg area
