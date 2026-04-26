@@ -962,6 +962,23 @@ export async function getJobPostings(): Promise<JobPosting[] | null> {
 }
 
 export async function createJobPosting(job: JobPostingFormData): Promise<JobPosting | null> {
+  const existing = await findExistingJobPostingForInput(job)
+
+  if (existing.data?.id) {
+    return updateJobPosting(existing.data.id, {
+      title: job.title,
+      company: job.company,
+      location: job.location,
+      remote_type: job.remote_type,
+      employment_type: job.employment_type,
+      salary_range: job.salary_range,
+      job_url: job.job_url,
+      description: job.description,
+      fit_notes: job.fit_notes,
+      archived_at: null,
+    })
+  }
+
   const { data, error } = await supabase
     .from('job_postings')
     .insert(job)
@@ -977,23 +994,7 @@ export async function createJobPosting(job: JobPostingFormData): Promise<JobPost
 }
 
 export async function upsertImportedJobPosting(job: JobPostingFormData): Promise<JobPosting | null> {
-  const externalId = job.external_id?.trim() ?? ''
-
-  if (!externalId) {
-    return createJobPosting(job)
-  }
-
-  const existing = await supabase
-    .from('job_postings')
-    .select('id')
-    .eq('source', job.source)
-    .eq('external_id', externalId)
-    .maybeSingle()
-
-  if (existing.error) {
-    console.error('Error looking up imported job posting:', existing.error)
-    throw existing.error
-  }
+  const existing = await findExistingJobPostingForInput(job)
 
   const write = existing.data?.id
     ? await supabase
@@ -1016,6 +1017,42 @@ export async function upsertImportedJobPosting(job: JobPostingFormData): Promise
   }
 
   return mapJobPostingRow(data as JobPostingRow)
+}
+
+async function findExistingJobPostingForInput(job: JobPostingFormData) {
+  const externalId = job.external_id?.trim() ?? ''
+
+  if (externalId) {
+    const existing = await supabase
+      .from('job_postings')
+      .select('id')
+      .eq('source', job.source)
+      .eq('external_id', externalId)
+      .maybeSingle()
+
+    if (existing.error) {
+      console.error('Error looking up imported job posting:', existing.error)
+      throw existing.error
+    }
+
+    if (existing.data?.id) return existing
+  }
+
+  const jobUrl = job.job_url?.trim() ?? ''
+  if (!jobUrl) return { data: null }
+
+  const existingByUrl = await supabase
+    .from('job_postings')
+    .select('id')
+    .eq('job_url', jobUrl)
+    .maybeSingle()
+
+  if (existingByUrl.error) {
+    console.error('Error looking up job posting by URL:', existingByUrl.error)
+    throw existingByUrl.error
+  }
+
+  return existingByUrl
 }
 
 export async function updateJobPosting(

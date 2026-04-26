@@ -5,7 +5,8 @@
  *
  * When `onUpdate` is provided all text fields become contentEditable inline.
  */
-import { useRef, useState, useEffect } from 'react'
+import { useRef, useState, useEffect, ReactNode } from 'react'
+import { Mail, Phone, MapPin, Github, Linkedin } from 'lucide-react'
 import {
   ResumeContent,
   ResumeEducationSection,
@@ -27,9 +28,9 @@ const STYLE = {
   name: '14pt',
   head: '10pt',
   small: '9pt',
-  padTop: 48,   // 0.5in
-  padBottom: 48, // 0.5in
-  padH: 48,     // 0.5in left/right
+  padTop: 36,   // 0.375in
+  padBottom: 36, // 0.375in
+  padH: 36,     // 0.375in left/right
   entryGap: 8,
   sectionGap: 10,
 } as const
@@ -152,6 +153,46 @@ function getSkillDisplayBlocks(section: ResumeSkillsSection | undefined, skills:
       text: skills.map((skill) => skill.name).join(separator),
     },
   ]
+}
+
+// ─── ContactLine Renderer ─────────────────────────────────────────────────────
+
+function formatContactPart(part: string): { icon: ReactNode; text: string } {
+  const p = part.trim()
+  if (!p) return { icon: null, text: '' }
+
+  if (p.includes('@')) {
+    return { icon: <Mail size={11} style={{ marginRight: 3, verticalAlign: '-1.5px' }} />, text: p }
+  }
+  if (/github\.com/i.test(p)) {
+    return { icon: <Github size={11} style={{ marginRight: 3, verticalAlign: '-1.5px' }} />, text: p.replace(/^https?:\/\//i, '').replace(/^github\.com\//i, '') }
+  }
+  if (/linkedin\.com/i.test(p)) {
+    return { icon: <Linkedin size={11} style={{ marginRight: 3, verticalAlign: '-1.5px' }} />, text: p.replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/^linkedin\.com\/in\//i, '') }
+  }
+  if (/^[\d\s()+-]{7,}$/.test(p)) {
+    return { icon: <Phone size={11} style={{ marginRight: 3, verticalAlign: '-1.5px' }} />, text: p }
+  }
+  return { icon: <MapPin size={11} style={{ marginRight: 3, verticalAlign: '-1.5px' }} />, text: p }
+}
+
+function ContactLineDisplay({ line }: { line: string }) {
+  const parts = line.split(/(?: {2,}|\||•)/).filter(Boolean)
+  if (parts.length <= 1) return <span>{line}</span> // fallback if not neatly separated
+
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '12px', alignItems: 'center' }}>
+      {parts.map((p, i) => {
+        const { icon, text } = formatContactPart(p)
+        if (!text) return null
+        return (
+          <span key={i} style={{ display: 'flex', alignItems: 'center' }}>
+            {icon} {text}
+          </span>
+        )
+      })}
+    </div>
+  )
 }
 
 // ─── main component ───────────────────────────────────────────────────────────
@@ -282,8 +323,8 @@ export function ResumePreview({
               <div style={{ fontSize: STYLE.name, fontWeight: 'bold', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
                 {resume.header.name || 'YOUR NAME'}
               </div>
-              <div style={{ fontSize: STYLE.small, color: '#222', marginTop: 3 }}>
-                {resume.header.contactLine}
+              <div style={{ fontSize: STYLE.small, color: '#222', marginTop: 4 }}>
+                <ContactLineDisplay line={resume.header.contactLine} />
               </div>
             </>
           )}

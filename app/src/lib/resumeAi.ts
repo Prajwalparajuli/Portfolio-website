@@ -202,3 +202,23 @@ export async function generateCoverLetter(
 
   return result.text
 }
+
+export async function analyzeJdMatch(
+  jd: string,
+  resumeText: string
+): Promise<{
+  score: number
+  foundKeywords: string[]
+  missingKeywords: string[]
+  redFlags: string[]
+}> {
+  return invokeResumeAi<{
+    score: number
+    foundKeywords: string[]
+    missingKeywords: string[]
+    redFlags: string[]
+  }>('analyze_jd_match', {
+    jd,
+    resumeText,
+  })
+}

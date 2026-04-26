@@ -774,7 +774,7 @@ export function AdminApplications() {
                     const primaryAction =
                       activeFilter === 'needs_tailoring'
                         ? {
-                            label: generatingPacketId === application.id ? 'Generating...' : 'Generate packet',
+                            label: generatingPacketId === application.id ? 'Preparing...' : 'Prepare app',
                             onClick: () =>
                               void handleGeneratePacket(
                                 application,
@@ -872,7 +872,7 @@ export function AdminApplications() {
                       ) : (
                         <Sparkles className="h-4 w-4" />
                       )}
-                      {generatingPacketId === selectedApplication.id ? 'Generating...' : 'Generate packet'}
+                      {generatingPacketId === selectedApplication.id ? 'Preparing...' : 'Prepare application'}
                     </Button>
                     {selectedApplication.status !== 'applied' &&
                       selectedApplication.status !== 'interview' &&

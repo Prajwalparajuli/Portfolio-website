@@ -1,6 +1,6 @@
 # Supabase Edge Functions
 
-This repo uses Supabase Edge Functions for resume AI, external job search, hybrid matching, watchlist sync, notifications, recruiter packet resolution, and interview prep.
+This repo uses Supabase Edge Functions for resume AI, external job search, direct job URL intake, hybrid matching, watchlist sync, notifications, recruiter packet resolution, and interview prep.
 
 ## Required setup
 
@@ -34,6 +34,7 @@ Deploy the admin-authenticated functions. These should use in-function admin che
 
 - `supabase functions deploy resume-ai`
 - `supabase functions deploy job-search`
+- `supabase functions deploy job-url-intake`
 - `supabase functions deploy jobs-match`
 - `supabase functions deploy watchlist-discover`
 - `supabase functions deploy interview-prep-generate`
@@ -79,6 +80,7 @@ Do not use `VITE_ADMIN_ALLOWED_EMAILS`. Admin access now comes from Supabase aut
 
 ## Notes
 
-- `resume-ai`, `job-search`, `jobs-match`, `watchlist-discover`, `interview-prep-generate`, and `project-describe` require an authenticated admin user and should enforce that inside the function.
+- `resume-ai`, `job-search`, `job-url-intake`, `jobs-match`, `watchlist-discover`, `interview-prep-generate`, and `project-describe` require an authenticated admin user and should enforce that inside the function.
+- `job-url-intake` accepts a posting URL, extracts structured posting details, dedupes by URL or manual external id, creates an application by default, and asks `jobs-match` to refresh the new role.
 - `packet-share-resolve` is intentionally public and only accepts secret packet tokens.
 - `jobs-sync-scheduler` and `notifications-dispatch` accept either an authenticated admin request or a matching `x-cron-secret` header.

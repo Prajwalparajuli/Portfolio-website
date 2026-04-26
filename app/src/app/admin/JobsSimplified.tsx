@@ -23,7 +23,7 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { getAdminPath } from '@/lib/adminConfig'
-import { discoverWatchlist, refreshHybridMatches, runScheduledWatchlists } from '@/lib/careerCockpit'
+import { discoverWatchlist, intakeJobUrl, refreshHybridMatches, runScheduledWatchlists } from '@/lib/careerCockpit'
 import { searchExternalJobs } from '@/lib/jobSearch'
 import { scoreJobFit } from '@/lib/jobMatching'
 import {
@@ -155,6 +155,7 @@ export function AdminJobs() {
     initialSession?.searchForm ?? EMPTY_SEARCH_FORM
   )
   const [manualJobForm, setManualJobForm] = useState<JobPostingFormData>(EMPTY_JOB_FORM)
+  const [quickJobUrl, setQuickJobUrl] = useState('')
   const [searchResults, setSearchResults] = useState<ExternalJobSearchResult[]>(
     initialSession?.searchResults ?? []
   )
@@ -173,6 +174,7 @@ export function AdminJobs() {
   const [archivingJobId, setArchivingJobId] = useState<string | null>(null)
   const [refreshingJobId, setRefreshingJobId] = useState<string | null>(null)
   const [creatingManualJob, setCreatingManualJob] = useState(false)
+  const [intakingJobUrl, setIntakingJobUrl] = useState(false)
   const [workingWatchlistId, setWorkingWatchlistId] = useState<string | null>(null)
   const [panelMode, setPanelMode] = useState<DiscoverView>(
     searchParams.get('view') === 'imported'
@@ -822,6 +824,47 @@ export function AdminJobs() {
     }
   }
 
+  const handleQuickJobUrl = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!schemaReady) return
+
+    const jobUrl = quickJobUrl.trim()
+    if (!jobUrl) return
+
+    setIntakingJobUrl(true)
+    setPageError(null)
+
+    try {
+      const result = await intakeJobUrl({ jobUrl, createApplication: true })
+      mergeImportedJobs([result.job])
+
+      if (!result.matchRefresh.skipped) {
+        setJobMatches(await getJobMatches())
+      }
+
+      const application = result.application
+      if (application) {
+        setApplications((current) => {
+          const withoutExisting = (current ?? []).filter(
+            (entry) => entry.job_posting_id !== application.job_posting_id
+          )
+          return [application, ...withoutExisting]
+        })
+        setQuickJobUrl('')
+        navigate(`${getAdminPath('applications')}?application=${encodeURIComponent(application.id)}`)
+        return
+      }
+
+      setQuickJobUrl('')
+      setPanelMode('imported')
+      setSelectedSavedJobId(result.job.id)
+    } catch (error) {
+      setPageError(error instanceof Error ? error.message : 'Could not save this job URL.')
+    } finally {
+      setIntakingJobUrl(false)
+    }
+  }
+
   const handleCreateManualJob = async (event: FormEvent) => {
     event.preventDefault()
     if (!schemaReady) return
@@ -924,6 +967,29 @@ export function AdminJobs() {
 
       <Card className="glass">
         <CardContent className="space-y-4 p-4 md:p-5">
+          <form
+            className="rounded-xl border border-accent/20 bg-accent/5 p-3"
+            onSubmit={handleQuickJobUrl}
+          >
+            <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_180px]">
+              <div className="space-y-2">
+                <Label htmlFor="quick-job-url">Quick add job URL</Label>
+                <Input
+                  id="quick-job-url"
+                  value={quickJobUrl}
+                  onChange={(event) => setQuickJobUrl(event.target.value)}
+                  placeholder="https://company.com/careers/job..."
+                />
+              </div>
+              <div className="flex items-end">
+                <Button type="submit" className="w-full gap-2" disabled={intakingJobUrl || !quickJobUrl.trim()}>
+                  {intakingJobUrl ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                  {intakingJobUrl ? 'Saving...' : 'Save + open app'}
+                </Button>
+              </div>
+            </div>
+          </form>
+
           <form className="space-y-4" onSubmit={handleSearch}>
             <div className="grid gap-3 lg:grid-cols-[180px_minmax(0,1.3fr)_minmax(0,1fr)_180px]">
               <div className="space-y-2">

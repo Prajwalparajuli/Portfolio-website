@@ -7,6 +7,7 @@ const MODEL_BY_TASK = {
   generate_subtitle: 'gemini-2.5-flash',
   tailor_resume: 'gemini-2.5-flash',
   generate_cover_letter: 'gemini-2.5-flash',
+  analyze_jd_match: 'gemini-2.5-flash',
 } as const
 
 type TaskName = keyof typeof MODEL_BY_TASK
@@ -60,6 +61,13 @@ type ResumeAiRequest =
         currentSummary?: string
         entries?: ResumeAiExperienceEntry[]
         skills?: string[]
+      }
+    }
+  | {
+      task: 'analyze_jd_match'
+      payload: {
+        jd: string
+        resumeText: string
       }
     }
   | {
@@ -226,7 +234,8 @@ Write EXACTLY 4 resume bullet points for the project below. Follow these rules s
 RULES:
 - Each bullet starts with a past-tense action verb (Built, Developed, Engineered, Designed, Optimized, Analyzed, Evaluated, Implemented, Deployed, Processed, Automated, Constructed)
 - STAR formula: [Verb] + [What you did + tools/tech + scale] + [quantified result or outcome]
-- Use "[X]" or "[X]%" placeholder where metrics are not in the description; user will fill them in
+- DO NOT use "[X]", "[X]%", or any placeholders. If you don't have a specific metric from the description, focus on the technical achievement or qualitative outcome. Do not invent numbers.
+- If the project description already contains bullet points, refine and improve those existing bullets to fit the STAR formula instead of making up new ones.
 - 80-175 characters per bullet - no shorter, no longer
 - NEVER start with "I", "We", "Responsible for", "Helped", "Utilized", "Leveraged", or "Used X to"
 - Use numbers already in the description whenever possible
@@ -248,10 +257,10 @@ IMPORTANT: Output EXACTLY 4 lines. Each line is one bullet. No numbering. No das
 
   while (bullets.length < 4) {
     const stubs = [
-      `Built [system] using ${tags}, processing [X]+ records to achieve [outcome].`,
-      `Processed and cleaned [X]+ rows of real-world data using ${tags}, engineering [X] features.`,
-      'Evaluated [X] model architectures using precision@k, recall@k, and NDCG@k metrics.',
-      'Deployed solution as [Streamlit app / REST API] and presented findings to [audience], achieving [X]% accuracy.',
+      `Built ${project.title} using ${tags}, implementing core algorithms to solve the target problem.`,
+      `Processed and cleaned dataset using ${tags}, performing feature engineering and data validation.`,
+      `Evaluated model architectures to optimize performance and improve baseline metrics.`,
+      `Deployed solution and presented findings, enabling data-driven decision making.`,
     ]
     bullets.push(stubs[bullets.length] ?? '')
   }
@@ -318,7 +327,7 @@ async function handleImproveBullet(payload: { bullet: string; projectTitle: stri
 RULES:
 1. Keep the same core facts. Do not invent numbers.
 2. Start with a strong past-tense action verb.
-3. Add "[X]" or "[X]%" placeholder if a metric is missing or vague.
+3. DO NOT use "[X]" or "[X]%" placeholders. If a metric is missing, emphasize the qualitative impact or technical complexity.
 4. Output must be 80-175 characters.
 5. NEVER start with "I", "We", "Responsible for", "Leveraged", or "Utilized".
 
@@ -387,9 +396,12 @@ RULES:
 2. Rewrite the summary to open with keywords from the JD naturally.
 3. For each project entry, rewrite bullets to emphasize skills mentioned in the JD.
 4. Use exact phrases from the JD where they honestly apply.
-5. Add "[X]" metric placeholders where numbers would strengthen a bullet.
+5. DO NOT use "[X]" or "[X]%" placeholders. Focus on relevant qualitative skills and technical alignment.
 6. Each bullet must be 60-175 characters and start with a past-tense action verb.
-7. Keep the same number of bullets per entry.
+7. DYNAMIC BULLET ALLOCATION: Rank the provided entries by their relevance to the JD.
+   - For highly relevant entries, expand them to 4-6 detailed bullets to maximize keyword matches.
+   - For somewhat relevant entries, use 3-4 bullets.
+   - For irrelevant or older entries, condense them to 1-2 short bullets just to show continuous experience.
 
 JOB DESCRIPTION:
 ${jd}
@@ -421,7 +433,7 @@ Output as JSON exactly in this format:
 
   for (const entry of parsed.entries ?? []) {
     if (typeof entry.index !== 'number' || !Array.isArray(entry.bullets)) continue
-    bullets[entry.index] = entry.bullets.filter((bullet) => typeof bullet === 'string' && bullet.trim().length > 5).slice(0, 5)
+    bullets[entry.index] = entry.bullets.filter((bullet) => typeof bullet === 'string' && bullet.trim().length > 5).slice(0, 7)
   }
 
   return {
@@ -520,6 +532,50 @@ IMPORTANT: Output ONLY the cover letter text. No markdown. No extra commentary.`
   return { text: text.trim() }
 }
 
+async function handleAnalyzeJdMatch(payload: { jd: string; resumeText: string }) {
+  const jd = asString(payload.jd, 'jd').slice(0, 4000)
+  const resumeText = asString(payload.resumeText, 'resumeText').slice(0, 4000)
+
+  const prompt = `You are an expert Applicant Tracking System (ATS) parser and technical recruiter.
+
+Analyze the provided Job Description against the provided Candidate Resume.
+1. Extract the core requirements (hard skills, soft skills, technologies, methodologies) from the JD.
+2. Cross-reference them against the resume text.
+3. Calculate a realistic Match Score from 0 to 100 based on keyword overlap and experience alignment. Be rigorous. 85+ is excellent, 70-84 is good, below 70 needs work.
+4. Identify 3-5 critical missing keywords that the candidate MUST add to pass the ATS.
+5. Identify any minor red flags (e.g., missing years of experience, missing a core degree if strictly required).
+
+JOB DESCRIPTION:
+${jd}
+
+CANDIDATE RESUME:
+${resumeText}
+
+Output as JSON exactly in this format:
+{
+  "score": 82,
+  "foundKeywords": ["Python", "SQL", "Machine Learning"],
+  "missingKeywords": ["AWS", "Docker", "CI/CD pipeline"],
+  "redFlags": ["Job requires 5 years experience, resume shows only 3."]
+}`
+
+  const raw = await callGemini('analyze_jd_match', prompt, 1000)
+  const jsonText = extractJsonObject(raw)
+  const parsed = JSON.parse(jsonText) as {
+    score?: number
+    foundKeywords?: string[]
+    missingKeywords?: string[]
+    redFlags?: string[]
+  }
+
+  return {
+    score: typeof parsed.score === 'number' ? parsed.score : 0,
+    foundKeywords: asStringArray(parsed.foundKeywords, 'foundKeywords'),
+    missingKeywords: asStringArray(parsed.missingKeywords, 'missingKeywords'),
+    redFlags: asStringArray(parsed.redFlags, 'redFlags'),
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -565,6 +621,9 @@ Deno.serve(async (req) => {
         break
       case 'tailor_resume':
         data = await handleTailorResume(body.payload)
+        break
+      case 'analyze_jd_match':
+        data = await handleAnalyzeJdMatch(body.payload)
         break
       case 'generate_cover_letter':
         data = await handleGenerateCoverLetter(body.payload)

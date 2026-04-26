@@ -1,6 +1,6 @@
 import { invokeAdminFunction } from '@/lib/functions'
 import { isSupabaseConfigured, supabase } from '@/lib/supabase'
-import { ApplicationShareLink, InterviewPrepNote } from '@/types'
+import type { ApplicationRecord, ApplicationShareLink, InterviewPrepNote, JobPosting } from '@/types'
 
 const PACKET_RESOLVE_FUNCTION = 'packet-share-resolve'
 
@@ -32,6 +32,23 @@ export async function discoverWatchlist(input: { watchlistId?: string; careersUr
     notes: string
     discoveredAt: string
   }>('watchlist-discover', input)
+}
+
+export async function intakeJobUrl(input: { jobUrl: string; createApplication?: boolean }) {
+  return invokeAdminFunction<{
+    job: JobPosting
+    application: ApplicationRecord | null
+    createdJob: boolean
+    createdApplication: boolean
+    matchRefresh: {
+      skipped: boolean
+      jobsProcessed: number
+      matchesUpdated: number
+    }
+  }>('job-url-intake', {
+    jobUrl: input.jobUrl,
+    createApplication: input.createApplication ?? true,
+  })
 }
 
 export async function runScheduledWatchlists(watchlistId?: string) {

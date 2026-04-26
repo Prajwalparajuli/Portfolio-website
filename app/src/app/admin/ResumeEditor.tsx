@@ -42,6 +42,7 @@ import {
   generateResumeSubtitle,
   improveResumeBullet,
   tailorResumeToJob,
+  analyzeJdMatch,
 } from '@/lib/resumeAi'
 
 // ─── Gemini API ───────────────────────────────────────────────────────────────
@@ -577,15 +578,15 @@ function extractBulletsFromProject(project: Project): string[] {
   } else if (bigNumbers.length > 0) {
     results.push(`Processed ${bigNumbers[0]}+ records/samples using ${techStr}, enabling [describe outcome].`)
   } else {
-    results.push(`Processed and cleaned [X]+ rows of real-world data using ${techStr || 'Python'}, handling missing values, outliers, and feature engineering.`)
+    results.push(`Processed and cleaned large-scale real-world data using ${techStr || 'Python'}, handling missing values, outliers, and feature engineering.`)
   }
 
   // Bullet 3 — RESULT / IMPACT bullet
   if (candidates[2]) {
     results.push(candidates[2])
   } else {
-    const metric = bigNumbers[1] ?? '[X]%'
-    results.push(`Achieved ${metric} accuracy / improvement; deployed as [Streamlit app / REST API / notebook] and presented findings to [audience].`)
+    const metricText = bigNumbers[1] ? `Achieved ${bigNumbers[1]} accuracy / improvement` : 'Improved model performance significantly'
+    results.push(`${metricText}; deployed as [Streamlit app / REST API / notebook] and presented findings to [audience].`)
   }
 
   // Bullet 4 — VALIDATION / EVALUATION bullet (optional but recommended for DS)
@@ -611,7 +612,7 @@ function buildSummaryTemplate(s: PortfolioSettings, skills: Skill[]): string {
   return [
     `${degree}${location ? ` based in ${location}` : ''} with hands-on research and project experience in machine learning, deep learning, and NLP.`,
     `Skilled in ${topSkills || 'Python, SQL, and machine learning frameworks'}, with a strong foundation in statistics, data wrangling, and end-to-end model development.`,
-    `Proven ability to transform complex datasets into actionable insights — achieving [X]% accuracy / [metric] on [project type].`,
+    `Proven ability to transform complex datasets into actionable insights, driving robust outcomes and measurable business impact on [project type].`,
     `Passionate about building interpretable, production-ready AI solutions that drive measurable business impact.`,
   ].join(' ')
 }
@@ -712,10 +713,10 @@ function BulletListEditor({ bullets, onChange, onImproveBullet }: BulletListEdit
                   value={b}
                   onChange={e => update(i, e.target.value)}
                   placeholder={i === 0
-                    ? 'Built [system/model] using [tech], processing [X]+ records to achieve [outcome].'
+                    ? 'Built [system/model] using [tech], processing large-scale records to achieve [outcome].'
                     : i === 1
-                    ? 'Engineered [feature] from [data source], reducing [metric] by [X]% through [method].'
-                    : 'Evaluated model using [metric]@k / F1 / accuracy — achieved [X]%; deployed as [app/API].'}
+                    ? 'Engineered [feature] from [data source], reducing [metric] significantly through [method].'
+                    : 'Evaluated model using [metric] / accuracy; deployed as [app/API].'}
                   className="bg-black/40 border-white/10 text-sm flex-1 min-h-[52px] resize-none"
                   rows={2}
                 />
@@ -757,7 +758,7 @@ function BulletListEditor({ bullets, onChange, onImproveBullet }: BulletListEdit
           </div>
         )
       })}
-      {bullets.length < 5 && (
+      {bullets.length < 8 && (
         <Button type="button" variant="ghost" size="sm" onClick={add}
           className="text-muted-foreground hover:text-white gap-1 text-xs h-7 px-2">
           <Plus className="h-3 w-3" /> Add bullet
@@ -1137,6 +1138,13 @@ export function AdminResumeEditor() {
   const [tailorSummaryEnabled, setTailorSummaryEnabled] = useState(true)
   const [tailorBulletsEnabled, setTailorBulletsEnabled] = useState(true)
   const [utilityTab, setUtilityTab] = useState<'resume' | 'layout' | 'tailor'>('resume')
+  
+  // ATS Match State
+  const [atsMatchScore, setAtsMatchScore] = useState<number | null>(null)
+  const [atsMatchKeywords, setAtsMatchKeywords] = useState<{ found: string[]; missing: string[] } | null>(null)
+  const [atsRedFlags, setAtsRedFlags] = useState<string[]>([])
+  const [analyzingAts, setAnalyzingAts] = useState(false)
+
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const hydratedSelectedJobKeyRef = useRef<string | null>(null)
   const lastSavedVariantSnapshotRef = useRef('')
@@ -1709,12 +1717,50 @@ export function AdminResumeEditor() {
       const packetMessage = selectedApplication && savedVariant
         ? ' The application packet was updated automatically.'
         : ''
-      setTailorMsg(`Tailored ${tailoredParts}. Review everything and fill in any [X] placeholders.${packetMessage}`)
+      setTailorMsg(`Tailored ${tailoredParts}. Review your bullets and fill in any blanks.${packetMessage}`)
       setTimeout(() => setTailorMsg(null), 8000)
     } catch (e) {
       setTailorMsg(e instanceof Error ? `Error: ${e.message}` : 'Tailoring failed — try again')
     } finally {
       setTailoring(false)
+    }
+  }
+
+  const handleAnalyzeMatch = async () => {
+    if (!resume || !HAS_RESUME_AI || !jdText.trim()) return
+    setAnalyzingAts(true)
+    setTailorMsg(null)
+    
+    // Build a text blob of the current resume to scan against
+    const resumeText = [
+      resume.header.name,
+      resume.header.contactLine,
+      ...resume.sections.map(s => {
+        if (s.type === 'summary') return s.text
+        if (s.type === 'skills') {
+          return s.includedIds === 'all' 
+            ? skills.map(sk => sk.name).join(', ') 
+            : Array.isArray(s.includedIds) ? skills.filter(sk => s.includedIds.includes(sk.id)).map(sk => sk.name).join(', ') : ''
+        }
+        if (s.type === 'experience') {
+          return s.items?.map(i => {
+            const title = i.kind === 'project' ? i.titleOverride : i.role
+            return `${title}\n${i.bullets.join('\n')}`
+          }).join('\n\n')
+        }
+        return ''
+      })
+    ].join('\n\n')
+
+    try {
+      const match = await analyzeJdMatch(jdText, resumeText)
+      setAtsMatchScore(match.score)
+      setAtsMatchKeywords({ found: match.foundKeywords, missing: match.missingKeywords })
+      setAtsRedFlags(match.redFlags)
+    } catch (e) {
+      setTailorMsg(e instanceof Error ? `Error: ${e.message}` : 'Analysis failed')
+    } finally {
+      setAnalyzingAts(false)
     }
   }
 
@@ -2081,32 +2127,96 @@ export function AdminResumeEditor() {
                 placeholder="Paste the full job description here..."
                 className="bg-black/40 border-white/10 min-h-[120px] text-sm resize-none"
               />
-              <div className="flex items-center gap-3 flex-wrap">
-                <Button
-                  type="button"
-                  disabled={!GEMINI_KEY || tailoring || !jdText.trim() || !resume || (!tailorSummaryEnabled && !tailorBulletsEnabled)}
-                  onClick={handleTailorToJD}
-                  className={cn(
-                    'gap-2',
-                    GEMINI_KEY ? 'bg-purple-600 hover:bg-purple-500 text-white' : ''
+              <div className="flex items-start gap-3 flex-wrap">
+                <div className="flex flex-col gap-2">
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      disabled={!GEMINI_KEY || tailoring || analyzingAts || !jdText.trim()}
+                      onClick={handleAnalyzeMatch}
+                      variant="outline"
+                      className="gap-2 border-purple-500/30 text-purple-200 hover:bg-purple-950/40"
+                      size="sm"
+                    >
+                      {analyzingAts
+                        ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Scanning...</>
+                        : <><Sparkles className="h-3.5 w-3.5 text-purple-400" /> ATS Scan</>
+                      }
+                    </Button>
+                    <Button
+                      type="button"
+                      disabled={!GEMINI_KEY || tailoring || analyzingAts || !jdText.trim() || !resume || (!tailorSummaryEnabled && !tailorBulletsEnabled)}
+                      onClick={handleTailorToJD}
+                      className={cn(
+                        'gap-2',
+                        GEMINI_KEY ? 'bg-purple-600 hover:bg-purple-500 text-white' : ''
+                      )}
+                      size="sm"
+                    >
+                      {tailoring
+                        ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Tailoring resume...</>
+                        : <><Sparkles className="h-3.5 w-3.5" /> Tailor with AI</>
+                      }
+                    </Button>
+                  </div>
+                  {tailorMsg && (
+                    <p className={cn(
+                      'text-[11px] max-w-sm',
+                      tailorMsg.startsWith('Error') ? 'text-red-400' : 'text-green-400'
+                    )}>{tailorMsg}</p>
                   )}
-                  size="sm"
-                >
-                  {tailoring
-                    ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Tailoring resume...</>
-                    : <><Sparkles className="h-3.5 w-3.5" /> Tailor resume with AI</>
-                  }
-                </Button>
-                {tailorMsg && (
-                  <p className={cn(
-                    'text-[11px] flex-1',
-                    tailorMsg.startsWith('Error') ? 'text-red-400' : 'text-green-400'
-                  )}>{tailorMsg}</p>
-                )}
-                {!tailorSummaryEnabled && !tailorBulletsEnabled && (
-                  <p className="text-[11px] text-yellow-400">
-                    Select at least one target before tailoring.
-                  </p>
+                  {!tailorSummaryEnabled && !tailorBulletsEnabled && (
+                    <p className="text-[11px] text-yellow-400">
+                      Select at least one target before tailoring.
+                    </p>
+                  )}
+                </div>
+
+                {atsMatchScore !== null && atsMatchKeywords && (
+                  <div className="flex-1 min-w-[300px] border border-white/10 rounded-lg bg-black/40 p-3 space-y-3">
+                    <div className="flex items-center gap-3">
+                      <div className={cn(
+                        "text-xl font-bold flex items-center justify-center h-12 w-12 rounded-full border-4",
+                        atsMatchScore >= 85 ? "border-green-500 text-green-400" :
+                        atsMatchScore >= 70 ? "border-yellow-500 text-yellow-400" :
+                        "border-red-500 text-red-400"
+                      )}>
+                        {atsMatchScore}
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-semibold text-white">ATS Match Score</h4>
+                        <p className="text-[11px] text-muted-foreground">
+                          {atsMatchScore >= 85 ? 'Excellent alignment! Ready to export.' :
+                           atsMatchScore >= 70 ? 'Good, but could use more specific keywords.' :
+                           'Needs significant tailoring before applying.'}
+                        </p>
+                      </div>
+                    </div>
+
+                    {atsMatchKeywords.missing.length > 0 && (
+                      <div className="space-y-1">
+                        <p className="text-xs font-medium text-red-300">Missing Keywords to Add:</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {atsMatchKeywords.missing.map(kw => (
+                            <Badge key={kw} variant="outline" className="text-[10px] bg-red-950/30 text-red-200 border-red-900/50">
+                              {kw}
+                            </Badge>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {atsRedFlags.length > 0 && (
+                      <div className="space-y-1">
+                        <p className="text-xs font-medium text-yellow-300">Red Flags:</p>
+                        <ul className="list-disc list-inside text-[11px] text-yellow-200/80 space-y-0.5">
+                          {atsRedFlags.map((flag, i) => (
+                            <li key={i}>{flag}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
             </TabsContent>
@@ -2728,6 +2838,39 @@ export function AdminResumeEditor() {
                   <option value="bullet">Bullet-separated</option>
                 </select>
               </div>
+              
+              {/* Orphaned Skills Warning */}
+              {(() => {
+                const includedSkillObjs = skillsSection?.includedIds === 'all' 
+                  ? skills 
+                  : skills.filter(sk => Array.isArray(skillsSection?.includedIds) && skillsSection.includedIds.includes(sk.id))
+                  
+                const allBulletsText = (resume?.sections.find(s => s.type === 'experience') as import('@/types/resume').ResumeExperienceSection)
+                  ?.items.flatMap(i => i.bullets).join(' ').toLowerCase() || ''
+                  
+                const orphaned = includedSkillObjs.filter(sk => !allBulletsText.includes(sk.name.toLowerCase()))
+                
+                if (orphaned.length === 0) return null
+                
+                return (
+                  <div className="rounded-md bg-yellow-950/30 border border-yellow-800/30 px-3 py-2 space-y-1">
+                    <Label className="text-xs font-semibold text-yellow-300 flex items-center gap-1.5">
+                      Orphaned Skills Detected
+                    </Label>
+                    <p className="text-[11px] text-yellow-200/80 leading-snug">
+                      The following skills are included in your Skills section but never mentioned in your Project/Experience bullets. Consider adding them to a bullet to pass ATS verification:
+                    </p>
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      {orphaned.map(sk => (
+                        <span key={sk.id} className="text-[10px] bg-yellow-500/10 text-yellow-300 border border-yellow-500/20 px-1.5 py-0.5 rounded">
+                          {sk.name}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })()}
+
               <div className="space-y-1">
                 <Label className="text-xs text-muted-foreground">Include skills</Label>
                 <div className="flex flex-wrap gap-2 mt-1">

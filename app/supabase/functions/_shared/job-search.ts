@@ -37,6 +37,19 @@ export type SearchResult = {
   description: string
 }
 
+export type JobUrlMetadata = {
+  external_id: string
+  title: string
+  company: string
+  location: string
+  remote_type: RemoteType
+  employment_type: string
+  salary_range: string
+  job_url: string
+  description: string
+  source_label: string
+}
+
 export type WatchlistDiscovery = {
   sourceHint: WatchlistSourceHint
   boardOrSite: string
@@ -1509,6 +1522,54 @@ function extractJobPageMetadata(
   }
 }
 
+export async function extractJobPostingFromUrl(rawUrl: string): Promise<JobUrlMetadata> {
+  const requestedUrl = normalizeJobPostingUrl(rawUrl)
+  const response = await fetchWithTimeout(requestedUrl, {
+    headers: {
+      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'User-Agent': 'Mozilla/5.0 (compatible; CareerCockpitBot/1.0)',
+    },
+  }, 15000)
+
+  if (!response.ok) {
+    throw new Error(`Job URL fetch failed with status ${response.status}.`)
+  }
+
+  const finalUrl = normalizeJobPostingUrl(response.url || requestedUrl)
+  const html = await response.text()
+  const fallbackCompany = readHostnameLabel(finalUrl)
+  const metadata = extractJobPageMetadata(html, finalUrl, fallbackCompany) ?? {}
+  const title =
+    metadata.title ||
+    cleanPageTitle(
+      extractMetaPropertyContent(html, 'og:title') ||
+      extractMetaContent(html, 'twitter:title') ||
+      extractPageTitle(html)
+    ) ||
+    deriveTitleFromUrl(finalUrl) ||
+    'Imported role'
+  const description =
+    metadata.description ||
+    summarizeDescription(
+      extractMetaContent(html, 'description') ||
+      extractMetaPropertyContent(html, 'og:description')
+    )
+  const jobUrl = metadata.job_url ? normalizeJobPostingUrl(metadata.job_url) : finalUrl
+
+  return {
+    external_id: metadata.external_id || deriveExternalIdFromUrl(jobUrl),
+    title,
+    company: metadata.company || fallbackCompany,
+    location: metadata.location || '',
+    remote_type: metadata.remote_type || guessRemoteType([metadata.location ?? '', description]),
+    employment_type: metadata.employment_type || inferEmploymentType([title, description]),
+    salary_range: metadata.salary_range || '',
+    job_url: jobUrl,
+    description,
+    source_label: 'Job URL',
+  }
+}
+
 function extractJsonLdSearchResults(
   html: string,
   baseUrl: string,
@@ -1670,6 +1731,59 @@ function extractMetaContent(html: string, name: string): string {
 function extractMetaPropertyContent(html: string, property: string): string {
   const pattern = new RegExp(`<meta[^>]+property=["']${property}["'][^>]+content=["']([^"']+)["']`, 'i')
   return decodeHtmlEntities(html.match(pattern)?.[1] ?? '').trim()
+}
+
+function extractPageTitle(html: string): string {
+  return decodeHtmlEntities(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? '').trim()
+}
+
+function cleanPageTitle(value: string): string {
+  const trimmed = value.trim()
+  if (!trimmed) return ''
+
+  return trimmed
+    .replace(/\s+/g, ' ')
+    .split(/\s(?:-|\u2013|\u2014|\|)\s/)
+    .map((part) => part.trim())
+    .filter(Boolean)[0] ?? trimmed
+}
+
+function normalizeJobPostingUrl(rawUrl: string): string {
+  const trimmed = rawUrl.trim()
+  if (!trimmed) throw new Error('job_url is required.')
+
+  const withProtocol = /^[a-z][a-z\d+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`
+  const parsed = new URL(withProtocol)
+
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error('Only http and https job URLs are supported.')
+  }
+
+  const hostname = parsed.hostname.toLowerCase()
+  if (
+    hostname === 'localhost' ||
+    hostname.endsWith('.localhost') ||
+    hostname === '0.0.0.0' ||
+    hostname.startsWith('127.') ||
+    hostname.startsWith('10.') ||
+    /^192\.168\./.test(hostname) ||
+    /^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname) ||
+    hostname === '[::1]'
+  ) {
+    throw new Error('Local or private network URLs are not supported.')
+  }
+
+  parsed.hash = ''
+  for (const key of [...parsed.searchParams.keys()]) {
+    if (/^utm_/i.test(key) || ['ref', 'ref_src', 'source', 'trk', 'gh_src'].includes(key.toLowerCase())) {
+      parsed.searchParams.delete(key)
+    }
+  }
+  if (parsed.pathname.length > 1) {
+    parsed.pathname = parsed.pathname.replace(/\/+$/, '')
+  }
+
+  return parsed.toString()
 }
 
 function deriveExternalIdFromUrl(url: string): string {

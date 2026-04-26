@@ -42,6 +42,7 @@ function App() {
           </Route>
 
           {/* Admin Routes - path from VITE_ADMIN_PATH (default: /admin) */}
+          <Route path={`${adminBase}/resume/print`} element={<AdminResumePrintViewRoute />} />
           <Route path={adminBase} element={<AdminLayout />}>
             <Route index element={<Navigate to="jobs" replace />} />
             <Route path="today" element={<AdminDashboardRoute />} />
@@ -57,7 +58,6 @@ function App() {
             <Route path="applications" element={<AdminApplicationsRoute />} />
             <Route path="answers" element={<AdminAnswerBankRoute />} />
             <Route path="inbox" element={<AdminInboxRoute />} />
-            <Route path="resume/print" element={<AdminResumePrintViewRoute />} />
             <Route path="resume" element={<AdminResumeEditorRoute />} />
           </Route>
         </Routes>

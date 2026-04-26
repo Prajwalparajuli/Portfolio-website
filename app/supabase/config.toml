@@ -384,6 +384,9 @@ verify_jwt = false
 [functions.job-search]
 verify_jwt = false
 
+[functions.job-url-intake]
+verify_jwt = false
+
 [functions.jobs-match]
 verify_jwt = false
 
