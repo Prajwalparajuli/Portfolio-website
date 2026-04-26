@@ -533,7 +533,7 @@ export function ResumePreview({
                                     </button>
                                   </div>
                                 ) : (
-                                  <span style={{ display: 'inline-block' }}>{b}</span>
+                                  <span>{b}</span>
                                 )}
                               </li>
                             )
