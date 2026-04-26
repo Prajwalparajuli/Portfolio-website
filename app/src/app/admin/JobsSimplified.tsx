@@ -134,7 +134,7 @@ const DEFAULT_SEARCH_CRITERIA: SearchCriteria = {
   careerStage: 'early',
   requiredSkills: '',
   excludeTerms: '',
-  onlyPortfolioAligned: true,
+  onlyPortfolioAligned: false,
 }
 
 export function AdminJobs() {
@@ -1149,7 +1149,7 @@ export function AdminJobs() {
                   <div>
                     <p className="text-sm font-medium text-foreground">Only portfolio-aligned</p>
                     <p className="text-xs text-muted-foreground">
-                      Hide low-fit noise after search.
+                      When on, hides low-fit results. Off shows everything, low-fit sorted to bottom.
                     </p>
                   </div>
                   <Switch

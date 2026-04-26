@@ -914,20 +914,57 @@ async function searchGoogleJobs(request: Required<SearchRequest>): Promise<Searc
   if (request.remoteOnly) queryParts.push('remote')
 
   const query = queryParts.join(' ') || 'software engineer'
-  const params = new URLSearchParams({
-    engine: 'google_jobs',
-    q: query,
-    api_key: apiKey,
-    num: String(Math.min(request.limit, 20)),
-  })
 
-  const response = await fetchWithTimeout(`https://serpapi.com/search.json?${params.toString()}`)
-  if (!response.ok) {
-    throw new Error(`Google Jobs search failed with status ${response.status}`)
+  // SerpAPI google_jobs returns ~10 results per page.
+  // Paginate via next_page_token to collect up to the requested limit.
+  const targetCount = Math.min(request.limit, 50)
+  const maxPages = Math.ceil(targetCount / 10)
+  const collected = new Map<string, any>()
+  let nextPageToken: string | undefined
+
+  for (let page = 0; page < maxPages; page++) {
+    const params = new URLSearchParams({
+      engine: 'google_jobs',
+      q: query,
+      api_key: apiKey,
+    })
+
+    // Use lrad (radius in km) when a location is provided to widen the net
+    if (request.location) {
+      params.set('lrad', '80')
+    }
+
+    if (nextPageToken) {
+      params.set('next_page_token', nextPageToken)
+    }
+
+    const response = await fetchWithTimeout(`https://serpapi.com/search.json?${params.toString()}`)
+    if (!response.ok) {
+      // If first page fails, throw. Otherwise return what we have.
+      if (page === 0) {
+        throw new Error(`Google Jobs search failed with status ${response.status}`)
+      }
+      break
+    }
+
+    const data = await response.json()
+    const pageResults: any[] = data.jobs_results || []
+
+    for (const job of pageResults) {
+      const jobId = job.job_id || `${job.title}_${job.company_name}`
+      if (!collected.has(jobId)) {
+        collected.set(jobId, job)
+      }
+    }
+
+    // Check for next page token
+    nextPageToken = data.serpapi_pagination?.next_page_token
+    if (!nextPageToken || collected.size >= targetCount) {
+      break
+    }
   }
 
-  const data = await response.json()
-  const results: any[] = data.jobs_results || []
+  const results = Array.from(collected.values()).slice(0, targetCount)
 
   return results.map((job) => {
     let remoteType: RemoteType = 'unknown'
@@ -942,8 +979,13 @@ async function searchGoogleJobs(request: Required<SearchRequest>): Promise<Searc
     }
 
     const extensions = job.detected_extensions || {}
-    let employmentType = extensions.schedule_type || 'Full-time'
-    let salaryRange = extensions.salary || ''
+    const employmentType = extensions.schedule_type || 'Full-time'
+    const salaryRange = extensions.salary || ''
+
+    // Prefer apply_options link (direct apply URL) over share_link (Google's viewer)
+    const applyUrl = Array.isArray(job.apply_options) && job.apply_options.length > 0
+      ? job.apply_options[0].link
+      : ''
 
     return {
       source: 'google_jobs' as const,
@@ -955,7 +997,7 @@ async function searchGoogleJobs(request: Required<SearchRequest>): Promise<Searc
       remote_type: remoteType,
       employment_type: employmentType,
       salary_range: salaryRange,
-      job_url: job.related_links?.[0]?.link || job.share_link || '',
+      job_url: applyUrl || job.related_links?.[0]?.link || job.share_link || '',
       description: job.description || 'No description provided.',
     }
   })
