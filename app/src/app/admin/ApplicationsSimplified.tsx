@@ -300,7 +300,7 @@ export function AdminApplications() {
   }, [applications, today])
 
   const selectedApplication =
-    filteredApplications.find((application) => application.id === selectedApplicationId) ??
+    (applications ?? []).find((application) => application.id === selectedApplicationId) ??
     filteredApplications[0] ??
     null
 
@@ -925,22 +925,29 @@ export function AdminApplications() {
                   </FieldCard>
 
                   <FieldCard label="Resume variant">
-                    <select
-                      className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                      value={selectedApplication.resume_variant_id ?? ''}
-                      onChange={(event) =>
-                        void handlePatch(selectedApplication.id, {
-                          resume_variant_id: event.target.value || null,
-                        })
-                      }
-                    >
-                      <option value="">No variant assigned</option>
-                      {resumeVariants.map((variant) => (
-                        <option key={variant.id} value={variant.id}>
-                          {variant.name}
-                        </option>
-                      ))}
-                    </select>
+                    <div className="flex gap-2">
+                      <select
+                        className="h-10 flex-1 rounded-md border border-input bg-background px-3 text-sm"
+                        value={selectedApplication.resume_variant_id ?? ''}
+                        onChange={(event) =>
+                          void handlePatch(selectedApplication.id, {
+                            resume_variant_id: event.target.value || null,
+                          })
+                        }
+                      >
+                        <option value="">No variant assigned</option>
+                        {resumeVariants.map((variant) => (
+                          <option key={variant.id} value={variant.id}>
+                            {variant.name}
+                          </option>
+                        ))}
+                      </select>
+                      <Link to={getAdminPath(`resume?application=${selectedApplication.id}`)}>
+                        <Button variant="outline" size="icon" className="h-10 w-10 shrink-0" title="Edit this resume variant in the Builder">
+                          <NotebookPen className="h-4 w-4 text-accent" />
+                        </Button>
+                      </Link>
+                    </div>
                   </FieldCard>
 
                   <FieldCard label="Applied date">
