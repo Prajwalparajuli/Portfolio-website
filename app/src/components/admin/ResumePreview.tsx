@@ -24,15 +24,15 @@ export const PAPER_W = 816
 export const PAPER_H = 1056
 
 const STYLE = {
-  body: '10pt',
-  name: '14pt',
-  head: '10pt',
-  small: '9pt',
-  padTop: 36,   // 0.375in
-  padBottom: 36, // 0.375in
-  padH: 36,     // 0.375in left/right
-  entryGap: 8,
-  sectionGap: 10,
+  body: '9.5pt',
+  name: '18pt',
+  head: '11pt',
+  small: '8.5pt',
+  padTop: 36,
+  padBottom: 36,
+  padH: 42,
+  entryGap: 10,
+  sectionGap: 12,
 } as const
 
 // ─── InlineEdit ───────────────────────────────────────────────────────────────
@@ -107,14 +107,16 @@ function Section({ title, children }: { title: string; children: React.ReactNode
         fontSize: STYLE.head,
         fontWeight: 'bold',
         textTransform: 'uppercase',
-        letterSpacing: '0.07em',
         marginBottom: 2,
         fontFamily: 'inherit',
+        borderBottom: '1.5px solid #000',
+        paddingBottom: 2,
       }}>
         {title}
       </div>
-      <hr style={{ border: 'none', borderTop: '0.75px solid #000', marginBottom: 4 }} />
-      {children}
+      <div style={{ paddingTop: 4 }}>
+        {children}
+      </div>
     </div>
   )
 }
@@ -157,23 +159,40 @@ function getSkillDisplayBlocks(section: ResumeSkillsSection | undefined, skills:
 
 // ─── ContactLine Renderer ─────────────────────────────────────────────────────
 
-function formatContactPart(part: string): { icon: ReactNode; text: string } {
+function formatContactPart(part: string): { icon: ReactNode; text: ReactNode } {
   const p = part.trim()
   if (!p) return { icon: null, text: '' }
 
+  const iconStyle = { marginRight: 4, verticalAlign: '-2px', color: '#475569' } // Slate-600
+
   if (p.includes('@')) {
-    return { icon: <Mail size={11} style={{ marginRight: 3, verticalAlign: '-1.5px' }} />, text: p }
+    return {
+      icon: <Mail size={12} style={iconStyle} />,
+      text: <span style={{ color: '#0284c7', textDecoration: 'underline' }}>{p}</span>
+    }
   }
   if (/github\.com/i.test(p)) {
-    return { icon: <Github size={11} style={{ marginRight: 3, verticalAlign: '-1.5px' }} />, text: p.replace(/^https?:\/\//i, '').replace(/^github\.com\//i, '') }
+    return {
+      icon: <Github size={12} style={iconStyle} />,
+      text: <span style={{ color: '#334155' }}>{p.replace(/^https?:\/\//i, '').replace(/^github\.com\//i, '')}</span>
+    }
   }
-  if (/linkedin\.com/i.test(p)) {
-    return { icon: <Linkedin size={11} style={{ marginRight: 3, verticalAlign: '-1.5px' }} />, text: p.replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/^linkedin\.com\/in\//i, '') }
+  if (/linkedin\.com/i.test(p) || /^in\//i.test(p)) {
+    return {
+      icon: <Linkedin size={12} style={iconStyle} />,
+      text: <span style={{ color: '#334155' }}>{p.replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/^linkedin\.com\/in\//i, '').replace(/^linkedin\.com\//i, '')}</span>
+    }
   }
   if (/^[\d\s()+-]{7,}$/.test(p)) {
-    return { icon: <Phone size={11} style={{ marginRight: 3, verticalAlign: '-1.5px' }} />, text: p }
+    return {
+      icon: <Phone size={12} style={iconStyle} />,
+      text: <span style={{ color: '#334155' }}>{p}</span>
+    }
   }
-  return { icon: <MapPin size={11} style={{ marginRight: 3, verticalAlign: '-1.5px' }} />, text: p }
+  return {
+    icon: <MapPin size={12} style={iconStyle} />,
+    text: <span style={{ color: '#334155' }}>{p}</span>
+  }
 }
 
 function ContactLineDisplay({ line }: { line: string }) {
@@ -187,7 +206,7 @@ function ContactLineDisplay({ line }: { line: string }) {
     const s = line.trim()
     const emailMatch = s.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/)?.[0]
     const githubMatch = s.match(/github\.com\/[^\s|•]*/i)?.[0]
-    const linkedinMatch = s.match(/linkedin\.com\/[^\s|•]*/i)?.[0]
+    const linkedinMatch = s.match(/(?:linkedin\.com\/|in\/)[^\s|•]*/i)?.[0]
     const phoneMatch = s.match(/(?:\+\d{1,3}\s?)?(?:\(\d{3}\)|\d{3})[-.\s]?\d{3}[-.\s]?\d{4}/)?.[0]
 
     let location = s
@@ -200,12 +219,12 @@ function ContactLineDisplay({ line }: { line: string }) {
   }
 
   return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '12px', alignItems: 'center' }}>
+    <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '20px', alignItems: 'center' }}>
       {parts.map((p, i) => {
         const { icon, text } = formatContactPart(p)
         if (!text) return null
         return (
-          <span key={i} style={{ display: 'flex', alignItems: 'center' }}>
+          <span key={i} style={{ display: 'flex', alignItems: 'center', fontSize: '9pt', fontWeight: 500 }}>
             {icon} {text}
           </span>
         )
@@ -293,10 +312,10 @@ export function ResumePreview({
 
   // ── font styles ─────────────────────────────────────────────────────────────
   const bodyStyle: React.CSSProperties = {
-    fontFamily: "'Times New Roman', Georgia, serif",
+    fontFamily: "Calibri, 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif",
     fontSize: STYLE.body,
-    lineHeight: 1.34,
-    color: '#000',
+    lineHeight: 1.3,
+    color: '#222',
     background: '#fff',
     width: PAPER_W,
     minHeight: PAPER_H,
@@ -318,7 +337,7 @@ export function ResumePreview({
       <div style={bodyStyle}>
 
         {/* ── Header ──────────────────────────────────────────────────────── */}
-        <header style={{ textAlign: 'center', marginBottom: STYLE.sectionGap }}>
+        <header style={{ textAlign: 'center', marginBottom: STYLE.sectionGap + 4 }}>
           {editable ? (
             <>
               <InlineEdit
@@ -326,23 +345,24 @@ export function ResumePreview({
                 onChange={v => patchHeader({ name: v })}
                 placeholder="YOUR NAME"
                 style={{
-                  fontSize: STYLE.name, fontWeight: 'bold', letterSpacing: '0.04em',
+                  fontSize: '22pt', fontWeight: 900, letterSpacing: '0.05em',
                   textTransform: 'uppercase', display: 'block', textAlign: 'center', width: '100%',
+                  color: '#1e293b'
                 }}
               />
               <InlineEdit
                 value={resume.header.contactLine}
                 onChange={v => patchHeader({ contactLine: v })}
                 placeholder="City State  email  phone  linkedin.com/in/x  github.com/x"
-                style={{ fontSize: STYLE.small, color: '#222', marginTop: 3, display: 'block', textAlign: 'center', width: '100%' }}
+                style={{ fontSize: STYLE.small, color: '#334155', marginTop: 8, display: 'block', textAlign: 'center', width: '100%' }}
               />
             </>
           ) : (
             <>
-              <div style={{ fontSize: STYLE.name, fontWeight: 'bold', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+              <div style={{ fontSize: '22pt', fontWeight: 900, letterSpacing: '0.05em', textTransform: 'uppercase', color: '#1e293b' }}>
                 {resume.header.name || 'YOUR NAME'}
               </div>
-              <div style={{ fontSize: STYLE.small, color: '#222', marginTop: 4 }}>
+              <div style={{ marginTop: 8 }}>
                 <ContactLineDisplay line={resume.header.contactLine} />
               </div>
             </>
@@ -400,9 +420,9 @@ export function ResumePreview({
                           }}>×</button>
                       )}
 
-                      {/* Row 1: Title [— Subtitle]  Date */}
+                      {/* Row 1: Title — Subtitle (Bold) */}
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 6 }}>
-                        <div style={{ display: 'inline-flex', alignItems: 'baseline', gap: 4, flex: 1, flexWrap: 'wrap' }}>
+                        <div style={{ display: 'inline-flex', alignItems: 'baseline', gap: 4, flex: 1, flexWrap: 'wrap', fontWeight: 'bold' }}>
                           {editable ? (
                             <>
                               <InlineEdit
@@ -412,36 +432,24 @@ export function ResumePreview({
                                 style={{ fontWeight: 'bold', fontSize: 'inherit' }}
                               />
                               {(subtitleVal || editable) && (
-                                <span style={{ color: '#333' }}>
+                                <span>
                                   {' — '}
                                   <InlineEdit
                                     value={subtitleVal}
                                     onChange={v => patchExpItem(i, { subtitle: v })}
                                     placeholder="Subtitle"
-                                    style={{ fontSize: 'inherit', color: '#333' }}
+                                    style={{ fontSize: 'inherit', fontWeight: 'bold' }}
                                   />
                                 </span>
                               )}
                             </>
                           ) : (
                             <>
-                              <span style={{ fontWeight: 'bold' }}>{titleVal}</span>
-                              {subtitleVal && <span style={{ color: '#333' }}> — {subtitleVal}</span>}
+                              <span>{titleVal}</span>
+                              {subtitleVal && <span> — {subtitleVal}</span>}
                             </>
                           )}
                         </div>
-                        {editable ? (
-                          <InlineEdit
-                            value={item.dateRange}
-                            onChange={v => patchExpItem(i, { dateRange: v })}
-                            placeholder="Date range"
-                            style={{ fontSize: 'inherit', whiteSpace: 'nowrap', color: '#333', flexShrink: 0 }}
-                          />
-                        ) : (
-                          item.dateRange && (
-                            <span style={{ whiteSpace: 'nowrap', flexShrink: 0 }}>{item.dateRange}</span>
-                          )
-                        )}
                       </div>
 
                       {/* Row 2: primary URL */}
@@ -452,17 +460,17 @@ export function ResumePreview({
                               value={urlVal}
                               onChange={v => patchExpItem(i, { url: v })}
                               placeholder="https://demo-url (optional)"
-                              style={{ fontSize: 'inherit', color: '#111' }}
+                              style={{ fontSize: 'inherit', color: '#2563eb' }}
                             />
                           ) : (
-                            <span style={{ color: '#111' }}>{urlVal}</span>
+                            <span style={{ color: '#2563eb' }}>{urlVal}</span>
                           )}
                         </div>
                       )}
 
-                      {/* Row 3: github URL • org */}
-                      {(editable || githubUrlVal || item.org) && (
-                        <div style={{ fontSize: STYLE.small, color: '#333', marginTop: 1, display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'baseline' }}>
+                      {/* Row 3: github URL • org • date */}
+                      {(editable || githubUrlVal || item.org || item.dateRange) && (
+                        <div style={{ fontSize: STYLE.small, color: '#555', marginTop: 1, display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'baseline' }}>
                           {editable ? (
                             <>
                               {item.kind === 'project' && (
@@ -470,24 +478,33 @@ export function ResumePreview({
                                   value={githubUrlVal}
                                   onChange={v => patchExpItem(i, { githubUrl: v })}
                                   placeholder="github.com/user/repo (optional)"
-                                  style={{ fontSize: 'inherit', color: '#333' }}
+                                  style={{ fontSize: 'inherit', color: '#2563eb' }}
                                 />
                               )}
-                              {(githubUrlVal || item.kind === 'project') && item.org && (
+                              {(githubUrlVal || item.kind === 'project') && (item.org || editable) && (
                                 <span style={{ color: '#999' }}> • </span>
                               )}
                               <InlineEdit
                                 value={item.org}
                                 onChange={v => patchExpItem(i, { org: v })}
                                 placeholder="Organization (optional)"
-                                style={{ fontSize: 'inherit', color: '#333' }}
+                                style={{ fontSize: 'inherit' }}
+                              />
+                              <span style={{ color: '#999' }}> • </span>
+                              <InlineEdit
+                                value={item.dateRange}
+                                onChange={v => patchExpItem(i, { dateRange: v })}
+                                placeholder="Date range"
+                                style={{ fontSize: 'inherit' }}
                               />
                             </>
                           ) : (
                             <>
-                              {githubUrlVal && <span>{githubUrlVal}</span>}
-                              {githubUrlVal && item.org && <span style={{ color: '#999' }}> • </span>}
+                              {githubUrlVal && <span style={{ color: '#2563eb' }}>{githubUrlVal}</span>}
+                              {githubUrlVal && (item.org || item.dateRange) && <span style={{ color: '#999' }}> • </span>}
                               {item.org && <span>{item.org}</span>}
+                              {item.org && item.dateRange && <span style={{ color: '#999' }}> • </span>}
+                              {item.dateRange && <span>{item.dateRange}</span>}
                             </>
                           )}
                         </div>

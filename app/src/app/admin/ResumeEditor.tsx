@@ -165,10 +165,11 @@ Write EXACTLY 4 resume bullet points for the project below. Follow these rules s
 RULES:
 - Each bullet starts with a PAST-TENSE action verb (Built, Developed, Engineered, Designed, Optimized, Analyzed, Evaluated, Implemented, Deployed, Processed, Automated, Constructed…)
 - STAR formula: [Verb] + [What you did + tools/tech + scale] + [quantified result or outcome]
-- Use "[X]" or "[X]%" placeholder where metrics are not in the description; user will fill them in
+- CRITICAL RULE: ABSOLUTELY NO PLACEHOLDERS. NEVER use "[X]", "[X]%", "[Metric]", or any bracketed text.
+- If you don't have a specific metric from the description, describe the outcome qualitatively (e.g., "significantly improved performance" instead of "achieved [X]% performance").
 - 80–175 characters per bullet — no shorter, no longer
 - NEVER start with "I", "We", "Responsible for", "Helped", "Utilized", "Leveraged", or "Used X to"
-- Use numbers already in the description (e.g. "3.4M+ orders", "493 subjects", "95% accuracy")
+- Use numbers already in the description (e.g. "3.4M+ orders", "493 subjects", "95% accuracy"). If none exist, do not invent them.
 
 COVER THESE 4 ASPECTS IN ORDER:
 Line 1: What was BUILT — the system/model/pipeline name + core algorithms + tech stack
@@ -188,10 +189,10 @@ IMPORTANT: Output EXACTLY 4 lines. Each line is one bullet. No numbering. No das
   // If we somehow got fewer than 4, pad with template stubs so UI always shows 4 slots
   while (bullets.length < 4) {
     const stubs = [
-      `Built [system] using ${tags}, processing [X]+ records to achieve [outcome].`,
-      `Processed and cleaned [X]+ rows of real-world data using ${tags}, engineering [X] features.`,
-      `Evaluated [X] model architectures using precision@k, recall@k, and NDCG@k metrics.`,
-      `Deployed solution as [Streamlit app / REST API] and presented findings to [audience], achieving [X]% accuracy.`,
+      `Built [system] using ${tags}, processing data to achieve measurable results.`,
+      `Processed and cleaned real-world data using ${tags}, engineering key features.`,
+      `Evaluated model architectures using precision@k, recall@k, and NDCG@k metrics.`,
+      `Deployed solution as [Streamlit app / REST API] and presented findings to stakeholders.`,
     ]
     bullets.push(stubs[bullets.length] ?? '')
   }
