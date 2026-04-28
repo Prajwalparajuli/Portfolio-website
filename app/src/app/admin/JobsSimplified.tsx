@@ -947,20 +947,15 @@ export function AdminJobs() {
   }
 
   return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold gradient-text">Discover</h1>
-          <p className="mt-1 text-muted-foreground">
-            Search simply, import only the roles worth pursuing, and move the chosen ones into Applications.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-bold gradient-text">Discover</h1>
+        <div className="flex flex-wrap gap-1.5">
           <Link to={getAdminPath('applications')}>
-            <Button variant="outline">Applications</Button>
+            <Button size="sm" variant="outline">Applications</Button>
           </Link>
           <Link to={getAdminPath('today')}>
-            <Button variant="outline">Today</Button>
+            <Button size="sm" variant="outline">Today</Button>
           </Link>
         </div>
       </div>

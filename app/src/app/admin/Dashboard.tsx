@@ -331,23 +331,18 @@ export function AdminDashboard() {
   }
 
   return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold gradient-text">Today</h1>
-          <p className="mt-1 text-muted-foreground">
-            Due-now work only. Use this page to clear the next actions, then go back to Discover or Applications.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-bold gradient-text">Today</h1>
+        <div className="flex flex-wrap gap-1.5">
           <Link to={getAdminPath('jobs')}>
-            <Button className="gap-2">
-              <Compass className="h-4 w-4" />
+            <Button size="sm" className="gap-1.5">
+              <Compass className="h-3.5 w-3.5" />
               Discover
             </Button>
           </Link>
           <Link to={getAdminPath('applications')}>
-            <Button variant="outline">Applications</Button>
+            <Button size="sm" variant="outline">Applications</Button>
           </Link>
         </div>
       </div>
@@ -364,7 +359,6 @@ export function AdminDashboard() {
             <SlimTodaySection
               title="Review now"
               count={reviewNow.length}
-              description="Strong and review jobs that are not in Applications yet."
             >
               {reviewNow.slice(0, 6).map(({ match, job }) => (
                 <SlimQueueRow
@@ -379,7 +373,7 @@ export function AdminDashboard() {
                       {match.band === 'strong' ? `Strong ${Math.round(match.total_score)}` : `Review ${Math.round(match.total_score)}`}
                     </Badge>
                   }
-                  body={match.reason_summary || 'Review the role and move it into Applications if it is worth pursuing.'}
+
                   primaryAction={
                     <Button
                       size="sm"
@@ -406,7 +400,6 @@ export function AdminDashboard() {
             <SlimTodaySection
               title="Tailor now"
               count={tailorNow.length}
-              description="Tracked applications that still need packet work."
             >
               {tailorNow.slice(0, 6).map((application) => {
                 const job = jobsById.get(application.job_posting_id)
@@ -416,7 +409,7 @@ export function AdminDashboard() {
                     key={application.id}
                     title={job?.title || 'Tracked application'}
                     subtitle={[job?.company, describePacketGaps(application)].filter(Boolean).join(' | ')}
-                    body="Open the packet workspace and close the missing pieces before you apply."
+
                     primaryAction={
                       <Link
                         to={`${getAdminPath('applications')}?filter=needs_tailoring&application=${encodeURIComponent(application.id)}`}
@@ -442,7 +435,6 @@ export function AdminDashboard() {
             <SlimTodaySection
               title="Apply now"
               count={applyNow.length}
-              description="Applications that look ready to submit."
             >
               {applyNow.slice(0, 6).map((application) => {
                 const job = jobsById.get(application.job_posting_id)
@@ -453,7 +445,7 @@ export function AdminDashboard() {
                     title={job?.title || 'Ready application'}
                     subtitle={[job?.company, application.status.replace(/_/g, ' ')].filter(Boolean).join(' | ')}
                     badge={<Badge className="border-emerald-400/20 bg-emerald-400/10 text-emerald-200">Packet ready</Badge>}
-                    body="Mark it applied after you submit. The core packet is already in place."
+
                     primaryAction={
                       <Button
                         size="sm"
@@ -482,7 +474,6 @@ export function AdminDashboard() {
             <SlimTodaySection
               title="Follow up now"
               count={followUpApplications.length + dueContacts.length + unreadFollowUpNotifications.length}
-              description="Overdue application follow-ups, people follow-ups, and unread reminders."
             >
               {followUpApplications.slice(0, 4).map((application) => {
                 const job = jobsById.get(application.job_posting_id)
@@ -493,7 +484,7 @@ export function AdminDashboard() {
                     title={job?.title || 'Application follow-up'}
                     subtitle={[job?.company, application.follow_up_at ? `Due ${application.follow_up_at}` : 'Follow-up due'].filter(Boolean).join(' | ')}
                     badge={<Badge className="border-amber-400/20 bg-amber-400/10 text-amber-100">Follow up</Badge>}
-                    body="Log the touchpoint, then move the next follow-up date forward."
+
                     primaryAction={
                       <Link to={`${getAdminPath('applications')}?filter=follow_up&application=${encodeURIComponent(application.id)}`}>
                         <Button size="sm" className="gap-2">
@@ -533,7 +524,7 @@ export function AdminDashboard() {
                       contact.next_follow_up_at ? `Due ${contact.next_follow_up_at}` : 'Follow-up due',
                     ].filter(Boolean).join(' | ')}
                     badge={<Badge className="border-amber-400/20 bg-amber-400/10 text-amber-100">People</Badge>}
-                    body="Keep recruiter, referral, and alumni outreach in the same workflow as your applications."
+
                     primaryAction={
                       <Link to={`${getAdminPath('contacts')}?contact=${encodeURIComponent(contact.id)}`}>
                         <Button size="sm" className="gap-2">
@@ -564,7 +555,7 @@ export function AdminDashboard() {
                   title={item.title}
                   subtitle={item.due_at ? `Due ${item.due_at}` : 'Unread reminder'}
                   badge={<Badge variant="outline">Unread</Badge>}
-                  body={item.body}
+
                   primaryAction={
                     <Link
                       to={
@@ -598,7 +589,6 @@ export function AdminDashboard() {
             <SlimTodaySection
               title="Fix now"
               count={watchlistIssues.length + profileGaps.length}
-              description="Broken watchlists, never-synced watchlists, and profile gaps that weaken matching."
               isLast
             >
               {watchlistIssues.slice(0, 4).map((watchlist) => (
@@ -607,7 +597,7 @@ export function AdminDashboard() {
                   title={watchlist.company_name}
                   subtitle={buildWatchlistIssueSummary(watchlist)}
                   badge={<Badge variant="outline">{watchlist.last_error ? 'Needs attention' : 'Never synced'}</Badge>}
-                  body={watchlist.last_error || 'This target company still needs an initial discovery or sync pass.'}
+
                   primaryAction={
                     <Button
                       size="sm"
@@ -640,7 +630,6 @@ export function AdminDashboard() {
                   title={gap.title}
                   subtitle={gap.subtitle}
                   badge={<Badge variant="outline">Profile gap</Badge>}
-                  body={gap.body}
                   primaryAction={
                     <Link to={gap.primaryHref}>
                       <Button size="sm" className="gap-2">
@@ -672,30 +661,23 @@ export function AdminDashboard() {
 function SlimTodaySection({
   title,
   count,
-  description,
   children,
   isLast = false,
 }: {
   title: string
   count: number
-  description: string
   children: ReactNode
   isLast?: boolean
 }) {
   if (count === 0) return null
 
   return (
-    <section className={!isLast ? 'border-b border-white/10 px-4 py-4 md:px-5' : 'px-4 py-4 md:px-5'}>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2">
-            <h2 className="text-sm font-semibold text-foreground">{title}</h2>
-            <Badge variant="outline">{count}</Badge>
-          </div>
-          <p className="mt-1 text-xs text-muted-foreground">{description}</p>
-        </div>
+    <section className={!isLast ? 'border-b border-white/10 px-4 py-3 md:px-5' : 'px-4 py-3 md:px-5'}>
+      <div className="flex items-center gap-2">
+        <h2 className="text-sm font-semibold text-foreground">{title}</h2>
+        <Badge variant="outline">{count}</Badge>
       </div>
-      <div className="mt-3 space-y-2">{children}</div>
+      <div className="mt-2 space-y-2">{children}</div>
     </section>
   )
 }
@@ -704,29 +686,26 @@ function SlimQueueRow({
   title,
   subtitle,
   badge,
-  body,
   primaryAction,
   secondaryAction,
 }: {
   title: string
   subtitle: string
   badge?: ReactNode
-  body: string
   primaryAction: ReactNode
   secondaryAction?: ReactNode
 }) {
   return (
-    <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-3">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+    <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2.5">
+      <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <p className="text-sm font-medium text-foreground">{title}</p>
             {badge}
           </div>
-          <p className="mt-1 text-xs text-muted-foreground">{subtitle}</p>
-          <p className="mt-2 text-sm text-muted-foreground">{body}</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">{subtitle}</p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
           {primaryAction}
           {secondaryAction}
         </div>

@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
-import { X, Upload, Loader2, Github, ExternalLink, Eye, Search } from 'lucide-react'
+import { X, Upload, Loader2, Github, ExternalLink, Eye, Search, Globe } from 'lucide-react'
 import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
@@ -21,6 +21,7 @@ import {
 import { getAdminPath } from '@/lib/adminConfig'
 import { cn, generateSlug } from '@/lib/utils'
 import { fetchProjectFromGitHubUrl, type GitHubImportSummary } from '@/lib/github'
+import { fetchProjectFromWebsiteUrl } from '@/lib/website-import'
 import { invokeAdminFunction } from '@/lib/functions'
 import { getSuggestedCoverImage } from '@/lib/coverSuggestions'
 import { ProjectDetail } from '@/components/public/ProjectDetail'
@@ -76,6 +77,10 @@ export function AdminProjectForm() {
   const [isImporting, setIsImporting] = useState(false)
   const [importError, setImportError] = useState<string | null>(null)
   const [importSummary, setImportSummary] = useState<GitHubImportSummary | null>(null)
+  const [websiteImportUrl, setWebsiteImportUrl] = useState('')
+  const [isImportingWebsite, setIsImportingWebsite] = useState(false)
+  const [websiteImportError, setWebsiteImportError] = useState<string | null>(null)
+  const [importMode, setImportMode] = useState<'github' | 'website'>('github')
   const [previewOpen, setPreviewOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
@@ -273,6 +278,49 @@ export function AdminProjectForm() {
     }
   }
 
+  const handleImportFromWebsite = async () => {
+    if (!websiteImportUrl.trim()) return
+    setIsImportingWebsite(true)
+    setWebsiteImportError(null)
+    try {
+      const data = await fetchProjectFromWebsiteUrl(websiteImportUrl.trim())
+      const mergedTags = mergeProjectTags(formData.tags, data.tags)
+      setFormData(prev => ({
+        ...prev,
+        title: data.title || prev.title,
+        description: data.description || prev.description,
+        slug: data.slug || prev.slug,
+        tags: mergedTags.length > 0 ? mergedTags : prev.tags,
+        demo_url: data.demo_url,
+      }))
+      editor?.commands.setContent(data.description || '')
+
+      // Use the OG image as cover if available
+      if (data.cover_image) {
+        setFormData(prev => ({ ...prev, cover_image: data.cover_image }))
+        setPreviewImage(data.cover_image)
+        setPendingCoverFile(null)
+      } else {
+        // Fall back to suggested cover
+        const suggestedCover = await getSuggestedCover(
+          mergedTags.length > 0 ? mergedTags : formData.tags,
+          data.slug,
+          data.title
+        )
+        setFormData(prev => ({ ...prev, cover_image: suggestedCover }))
+        setPreviewImage(suggestedCover)
+        setPendingCoverFile(null)
+      }
+
+      setWebsiteImportUrl('')
+      setImportSummary(null)
+    } catch (err) {
+      setWebsiteImportError(err instanceof Error ? err.message : 'Failed to fetch website')
+    } finally {
+      setIsImportingWebsite(false)
+    }
+  }
+
   /** Call the project-describe edge function to generate a structured narrative via Gemini */
   const generateSmartNarrative = async (githubUrl: string) => {
     try {
@@ -392,31 +440,90 @@ export function AdminProjectForm() {
       <form onSubmit={handleSubmit} className="space-y-8">
         {!isEditing && (
           <Card className="glass">
-            <CardContent className="p-6 space-y-3">
-              <Label className="text-sm font-medium">Import from GitHub</Label>
-              <p className="text-xs text-muted-foreground">
-                Paste a public repo URL to build a cleaner project entry from the README, repo structure, languages, and manifests.
-              </p>
+            <CardContent className="p-6 space-y-4">
               <div className="flex gap-2">
-                <Input
-                  placeholder="https://github.com/owner/repo"
-                  value={githubImportUrl}
-                  onChange={(e) => { setGithubImportUrl(e.target.value); setImportError(null) }}
-                  className="bg-black/40 border-white/10 flex-1"
-                  disabled={isImporting}
-                />
-                <Button
+                <button
                   type="button"
-                  variant="secondary"
-                  onClick={handleImportFromGitHub}
-                  disabled={isImporting}
+                  className={cn(
+                    'flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm transition-colors',
+                    importMode === 'github'
+                      ? 'border-accent/30 bg-accent/10 text-foreground'
+                      : 'border-white/10 bg-black/20 text-muted-foreground hover:text-foreground'
+                  )}
+                  onClick={() => setImportMode('github')}
                 >
-                  {isImporting ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Import'}
-                </Button>
+                  <Github className="h-3.5 w-3.5" />
+                  GitHub
+                </button>
+                <button
+                  type="button"
+                  className={cn(
+                    'flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm transition-colors',
+                    importMode === 'website'
+                      ? 'border-accent/30 bg-accent/10 text-foreground'
+                      : 'border-white/10 bg-black/20 text-muted-foreground hover:text-foreground'
+                  )}
+                  onClick={() => setImportMode('website')}
+                >
+                  <Globe className="h-3.5 w-3.5" />
+                  Website
+                </button>
               </div>
-              {importError && (
-                <p className="text-xs text-destructive">{importError}</p>
+
+              {importMode === 'github' ? (
+                <div className="space-y-3">
+                  <p className="text-xs text-muted-foreground">
+                    Paste a public repo URL to import title, description, tags, and tech stack from the README and repo metadata.
+                  </p>
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="https://github.com/owner/repo"
+                      value={githubImportUrl}
+                      onChange={(e) => { setGithubImportUrl(e.target.value); setImportError(null) }}
+                      className="bg-black/40 border-white/10 flex-1"
+                      disabled={isImporting}
+                    />
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={handleImportFromGitHub}
+                      disabled={isImporting}
+                    >
+                      {isImporting ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Import'}
+                    </Button>
+                  </div>
+                  {importError && (
+                    <p className="text-xs text-destructive">{importError}</p>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <p className="text-xs text-muted-foreground">
+                    Paste the live URL of your app or website. We'll pull the title, description, cover image, and detect the tech stack.
+                  </p>
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="https://myapp.vercel.app"
+                      value={websiteImportUrl}
+                      onChange={(e) => { setWebsiteImportUrl(e.target.value); setWebsiteImportError(null) }}
+                      className="bg-black/40 border-white/10 flex-1"
+                      disabled={isImportingWebsite}
+                    />
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={handleImportFromWebsite}
+                      disabled={isImportingWebsite}
+                    >
+                      {isImportingWebsite ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Import'}
+                    </Button>
+                  </div>
+                  {websiteImportError && (
+                    <p className="text-xs text-destructive">{websiteImportError}</p>
+                  )}
+                </div>
               )}
+
               {importSummary && (
                 <div className="rounded-lg border border-white/10 bg-black/20 p-4 space-y-3">
                   <div className="flex items-center justify-between gap-3 flex-wrap">

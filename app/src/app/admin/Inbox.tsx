@@ -87,17 +87,12 @@ export function AdminInbox() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold gradient-text">Inbox</h1>
-          <p className="mt-1 text-muted-foreground">
-            Strong matches, application follow-ups, people follow-ups, sync failures, and stale applications in one place.
-          </p>
-        </div>
-        <Button onClick={handleDispatch} disabled={syncing} className="gap-2">
-          <RefreshCw className="h-4 w-4" />
-          {syncing ? 'Dispatching...' : 'Refresh inbox + email'}
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-bold gradient-text">Inbox</h1>
+        <Button size="sm" onClick={handleDispatch} disabled={syncing} className="gap-1.5">
+          <RefreshCw className="h-3.5 w-3.5" />
+          {syncing ? 'Dispatching...' : 'Refresh'}
         </Button>
       </div>
 

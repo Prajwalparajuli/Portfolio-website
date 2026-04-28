@@ -88,13 +88,8 @@ export function AdminAnswerBank() {
   }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold gradient-text">Answer Bank</h1>
-        <p className="mt-1 text-muted-foreground">
-          Save reusable answers for sponsorship, work authorization, relocation, intros, compensation, and links.
-        </p>
-      </div>
+    <div className="space-y-4">
+      <h1 className="text-2xl font-bold gradient-text">Answer Bank</h1>
 
       {(answers ?? []).length === 0 && (
         <Card className="glass border border-emerald-400/20">
@@ -133,7 +128,7 @@ export function AdminAnswerBank() {
               />
               <Textarea
                 placeholder="Write the reusable answer..."
-                className="min-h-[180px]"
+                className="min-h-[100px]"
                 value={form.answer}
                 onChange={(event) => setForm((current) => ({ ...current, answer: event.target.value }))}
               />

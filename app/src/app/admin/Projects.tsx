@@ -300,27 +300,19 @@ export function AdminProjects() {
   }
 
   return (
-    <div className="space-y-8">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold gradient-text">Projects</h1>
-          <p className="text-muted-foreground mt-1">
-            Manage and reorder your portfolio projects
-          </p>
-        </div>
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-bold gradient-text">Projects</h1>
         <Link to={getAdminPath('projects/new')}>
-          <Button>
-            <Plus className="h-4 w-4 mr-2" />
+          <Button size="sm" className="gap-1.5">
+            <Plus className="h-3.5 w-3.5" />
             New Project
           </Button>
         </Link>
       </div>
 
       <div className="space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <p className="text-sm text-muted-foreground">
-            Drag to reorder projects. Changes are saved automatically.
-          </p>
+        <div className="flex flex-wrap items-center justify-end gap-4">
           {projects.length > 0 && (
             <label className="flex items-center gap-2 text-sm cursor-pointer">
               <input

@@ -240,15 +240,19 @@ export function AdminApplications() {
     }
   }, [])
 
+  // Sync FROM URL → state (only when the URL is the source of truth, e.g. browser back/forward)
   useEffect(() => {
     const filterParam = searchParams.get('filter')
-    const nextFilter = isApplicationFilter(filterParam) ? filterParam : 'needs_tailoring'
+    const nextFilter = isApplicationFilter(filterParam) ? filterParam : null
     const nextApplicationId = searchParams.get('application')
 
-    if (nextFilter !== activeFilter) setActiveFilter(nextFilter)
+    // Only update if the URL actually has a meaningful filter that differs
+    if (nextFilter && nextFilter !== activeFilter) setActiveFilter(nextFilter)
     if (nextApplicationId !== selectedApplicationId) setSelectedApplicationId(nextApplicationId)
-  }, [activeFilter, searchParams, selectedApplicationId])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams])
 
+  // Sync FROM state → URL (debounced to avoid re-render storms)
   useEffect(() => {
     const nextParams = new URLSearchParams(searchParams)
     nextParams.set('filter', activeFilter)
@@ -258,7 +262,8 @@ export function AdminApplications() {
     if (nextParams.toString() !== searchParams.toString()) {
       setSearchParams(nextParams, { replace: true })
     }
-  }, [activeFilter, searchParams, selectedApplicationId, setSearchParams])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeFilter, selectedApplicationId])
 
   const schemaReady = applications !== null && jobs !== null
   const cockpitSupported =
@@ -304,19 +309,18 @@ export function AdminApplications() {
     filteredApplications[0] ??
     null
 
-  useEffect(() => {
-    if (!selectedApplicationId) return
-    const selected = (applications ?? []).find((application) => application.id === selectedApplicationId)
-    if (!selected) return
-    const bucket = getApplicationBucket(selected, today)
-    if (bucket !== activeFilter) setActiveFilter(bucket)
-  }, [activeFilter, applications, selectedApplicationId, today])
+  // When a selected app no longer matches the active filter bucket
+  // (e.g. because handleStatusChange already moved the filter),
+  // only follow the app to its new bucket on explicit user selection —
+  // NOT after a programmatic status change (which already sets the filter).
+  // This avoids the double-render flicker.
 
+  // Auto-select the first item in the list if nothing is selected
   useEffect(() => {
-    if (!selectedApplication) return
-    if (selectedApplication.id === selectedApplicationId) return
-    setSelectedApplicationId(selectedApplication.id)
-  }, [selectedApplication, selectedApplicationId])
+    if (selectedApplication) return
+    if (filteredApplications.length === 0) return
+    setSelectedApplicationId(filteredApplications[0].id)
+  }, [selectedApplication, filteredApplications])
 
   const selectedJob = selectedApplication ? jobMap.get(selectedApplication.job_posting_id) : null
   const selectedAssignedVariant =
@@ -387,7 +391,7 @@ export function AdminApplications() {
   }
 
   const handleStatusChange = async (application: ApplicationRecord, nextStatus: ApplicationStatus) => {
-    await handlePatch(application.id, {
+    const patch: Parameters<typeof handlePatch>[1] = {
       status: nextStatus,
       applied_at:
         nextStatus === 'applied'
@@ -397,7 +401,18 @@ export function AdminApplications() {
         nextStatus === 'applied'
           ? application.follow_up_at ?? addDaysFromToday(7)
           : application.follow_up_at,
-    })
+    }
+
+    // Predict the target bucket BEFORE the async call so we can switch
+    // the filter tab atomically, avoiding the cascading useEffect re-renders
+    // that cause the flickering.
+    const projected = { ...application, ...patch } as ApplicationRecord
+    const targetBucket = getApplicationBucket(projected, today)
+    if (targetBucket !== activeFilter) {
+      setActiveFilter(targetBucket)
+    }
+
+    await handlePatch(application.id, patch)
   }
 
   const handleSeedStarterAnswers = async () => {
@@ -702,19 +717,14 @@ export function AdminApplications() {
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold gradient-text">Applications</h1>
-          <p className="mt-1 text-muted-foreground">
-            Move each saved role from packet work to applied follow-up without leaving this screen.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-bold gradient-text">Applications</h1>
+        <div className="flex flex-wrap gap-1.5">
           <Link to={getAdminPath('jobs')}>
-            <Button variant="outline">Discover</Button>
+            <Button size="sm" variant="outline">Discover</Button>
           </Link>
           <Link to={getAdminPath('today')}>
-            <Button variant="outline">Today</Button>
+            <Button size="sm" variant="outline">Today</Button>
           </Link>
         </div>
       </div>
@@ -755,11 +765,8 @@ export function AdminApplications() {
       <div className="grid gap-5 xl:grid-cols-[380px_minmax(0,1fr)]">
         <Card className="glass overflow-hidden">
           <CardContent className="p-0">
-            <div className="border-b border-white/10 px-4 py-4">
-              <p className="text-sm font-semibold text-foreground">{FILTER_OPTIONS.find((option) => option.value === activeFilter)?.label}</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {filteredApplications.length} item{filteredApplications.length === 1 ? '' : 's'}
-              </p>
+            <div className="border-b border-white/10 px-4 py-3">
+              <p className="text-sm font-semibold text-foreground">{FILTER_OPTIONS.find((option) => option.value === activeFilter)?.label} <span className="font-normal text-muted-foreground">({filteredApplications.length})</span></p>
             </div>
 
             <div className="max-h-[72vh] overflow-y-auto p-3">
@@ -801,13 +808,9 @@ export function AdminApplications() {
                         key={application.id}
                         selected={selectedApplication?.id === application.id}
                         title={job?.title || 'Untitled role'}
-                        subtitle={[job?.company, job?.location].filter(Boolean).join(' | ')}
-                        status={application.status}
-                        secondaryMeta={[
-                          packetReady ? 'Core packet ready' : 'Needs packet work',
-                          application.follow_up_at ? `Follow up ${application.follow_up_at}` : null,
-                        ]}
-                        description={truncateText(application.notes || job?.description || 'No notes yet.', 160)}
+                        subtitle={[job?.company, job?.location].filter(Boolean).join(' · ')}
+                        packetReady={packetReady}
+                        followUp={application.follow_up_at}
                         onSelect={() => setSelectedApplicationId(application.id)}
                         primaryAction={primaryAction}
                       />
@@ -828,51 +831,36 @@ export function AdminApplications() {
         <Card className="glass">
           <CardContent className="p-5">
             {selectedApplication && selectedJob ? (
-              <div className="space-y-5">
-                <div className="flex flex-wrap items-start justify-between gap-4">
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h2 className="text-2xl font-semibold text-foreground">{selectedJob.title || 'Untitled role'}</h2>
-                      <StatusBadge status={selectedApplication.status} />
-                      <Badge variant={packetChecklist.every((item) => item.ready) ? 'default' : 'outline'}>
-                        {isPolishedPacketReady({
-                          resumeVariantId: selectedApplication.resume_variant_id,
-                          coverLetter: selectedCoverLetter,
-                          highlightCount: selectedHighlights.length,
-                          followUpAt: selectedApplication.follow_up_at,
-                        })
-                          ? 'Polished packet'
-                          : isCorePacketReady({
-                                resumeVariantId: selectedApplication.resume_variant_id,
-                                coverLetter: selectedCoverLetter,
-                              })
-                            ? 'Core packet ready'
-                            : 'Needs tailoring'}
-                      </Badge>
-                    </div>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      {[selectedJob.company, selectedJob.location].filter(Boolean).join(' | ')}
-                    </p>
-                    {jobMatchMap.get(selectedJob.id)?.reason_summary && (
-                      <p className="mt-2 text-sm text-muted-foreground">
-                        {jobMatchMap.get(selectedJob.id)?.reason_summary}
-                      </p>
-                    )}
+              <div className="space-y-4">
+                {/* ── Compact header bar ── */}
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex flex-wrap items-center gap-2 min-w-0">
+                    <h2 className="text-lg font-semibold text-foreground truncate">{selectedJob.title || 'Untitled role'}</h2>
+                    <StatusBadge status={selectedApplication.status} />
+                    <Badge variant={packetChecklist.every((item) => item.ready) ? 'default' : 'outline'}>
+                      {isCorePacketReady({
+                            resumeVariantId: selectedApplication.resume_variant_id,
+                            coverLetter: selectedCoverLetter,
+                          })
+                        ? 'Packet ready'
+                        : 'Needs work'}
+                    </Badge>
                   </div>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap items-center gap-1.5">
                     <Button
-                      className="gap-2"
+                      size="sm"
+                      className="gap-1.5"
                       disabled={generatingPacketId === selectedApplication.id}
                       onClick={() =>
                         void handleGeneratePacket(selectedApplication, selectedJob, selectedAssignedVariant)
                       }
                     >
                       {generatingPacketId === selectedApplication.id ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
                       ) : (
-                        <Sparkles className="h-4 w-4" />
+                        <Sparkles className="h-3.5 w-3.5" />
                       )}
-                      {generatingPacketId === selectedApplication.id ? 'Preparing...' : 'Prepare application'}
+                      {generatingPacketId === selectedApplication.id ? 'Preparing...' : 'Prepare'}
                     </Button>
                     {selectedApplication.status !== 'applied' &&
                       selectedApplication.status !== 'interview' &&
@@ -880,37 +868,45 @@ export function AdminApplications() {
                       selectedApplication.status !== 'rejected' &&
                       selectedApplication.status !== 'archived' && (
                         <Button
+                          size="sm"
                           variant="outline"
-                          className="gap-2"
+                          className="gap-1.5"
                           disabled={savingId === selectedApplication.id}
                           onClick={() => void handleStatusChange(selectedApplication, 'applied')}
                         >
-                          <CheckCircle2 className="h-4 w-4" />
-                          Mark applied
+                          <CheckCircle2 className="h-3.5 w-3.5" />
+                          Applied
                         </Button>
                       )}
                     <a href={selectedJob.job_url} target="_blank" rel="noreferrer">
-                      <Button variant="outline" className="gap-2">
-                        <ExternalLink className="h-4 w-4" />
-                        Open posting
+                      <Button size="sm" variant="outline" className="gap-1.5">
+                        <ExternalLink className="h-3.5 w-3.5" />
+                        Posting
                       </Button>
                     </a>
                     <Button
-                      variant="outline"
-                      className="gap-2"
+                      size="sm"
+                      variant="ghost"
+                      className="gap-1.5 text-muted-foreground"
                       disabled={deletingId === selectedApplication.id}
                       onClick={() => void handleDelete(selectedApplication.id)}
                     >
-                      <Trash2 className="h-4 w-4" />
-                      {deletingId === selectedApplication.id ? 'Deleting...' : 'Delete'}
+                      <Trash2 className="h-3.5 w-3.5" />
                     </Button>
                   </div>
                 </div>
 
-                <div className="grid gap-3 lg:grid-cols-4">
-                  <FieldCard label="Status">
+                {/* ── Company + match context (one line) ── */}
+                <p className="text-sm text-muted-foreground">
+                  {[selectedJob.company, selectedJob.location, jobMatchMap.get(selectedJob.id)?.reason_summary].filter(Boolean).join(' · ')}
+                </p>
+
+                {/* ── Inline metadata row — no card wrappers ── */}
+                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                  <div>
+                    <p className="mb-1 text-xs text-muted-foreground">Status</p>
                     <select
-                      className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                      className="h-9 w-full rounded-md border border-input bg-background px-2.5 text-sm"
                       value={selectedApplication.status}
                       onChange={(event) =>
                         void handleStatusChange(selectedApplication, event.target.value as ApplicationStatus)
@@ -922,12 +918,13 @@ export function AdminApplications() {
                         </option>
                       ))}
                     </select>
-                  </FieldCard>
+                  </div>
 
-                  <FieldCard label="Resume variant">
-                    <div className="flex gap-2">
+                  <div>
+                    <p className="mb-1 text-xs text-muted-foreground">Resume</p>
+                    <div className="flex gap-1.5">
                       <select
-                        className="h-10 flex-1 rounded-md border border-input bg-background px-3 text-sm"
+                        className="h-9 flex-1 rounded-md border border-input bg-background px-2.5 text-sm"
                         value={selectedApplication.resume_variant_id ?? ''}
                         onChange={(event) =>
                           void handlePatch(selectedApplication.id, {
@@ -935,7 +932,7 @@ export function AdminApplications() {
                           })
                         }
                       >
-                        <option value="">No variant assigned</option>
+                        <option value="">None</option>
                         {resumeVariants.map((variant) => (
                           <option key={variant.id} value={variant.id}>
                             {variant.name}
@@ -943,15 +940,17 @@ export function AdminApplications() {
                         ))}
                       </select>
                       <Link to={getAdminPath(`resume?application=${selectedApplication.id}`)}>
-                        <Button variant="outline" size="icon" className="h-10 w-10 shrink-0" title="Edit this resume variant in the Builder">
-                          <NotebookPen className="h-4 w-4 text-accent" />
+                        <Button variant="outline" size="icon" className="h-9 w-9 shrink-0" title="Edit resume">
+                          <NotebookPen className="h-3.5 w-3.5 text-accent" />
                         </Button>
                       </Link>
                     </div>
-                  </FieldCard>
+                  </div>
 
-                  <FieldCard label="Applied date">
+                  <div>
+                    <p className="mb-1 text-xs text-muted-foreground">Applied</p>
                     <Input
+                      className="h-9"
                       type="date"
                       value={selectedApplication.applied_at ?? ''}
                       onChange={(event) =>
@@ -960,10 +959,12 @@ export function AdminApplications() {
                         })
                       }
                     />
-                  </FieldCard>
+                  </div>
 
-                  <FieldCard label="Follow-up">
+                  <div>
+                    <p className="mb-1 text-xs text-muted-foreground">Follow-up</p>
                     <Input
+                      className="h-9"
                       type="date"
                       value={selectedApplication.follow_up_at ?? ''}
                       onChange={(event) =>
@@ -972,7 +973,7 @@ export function AdminApplications() {
                         })
                       }
                     />
-                  </FieldCard>
+                  </div>
                 </div>
 
                 {followUpPrompt && (
@@ -1007,7 +1008,7 @@ export function AdminApplications() {
                         <p className="text-sm font-medium text-foreground">Notes</p>
                       </div>
                       <Textarea
-                        rows={10}
+                        rows={5}
                         value={selectedNotes}
                         onChange={(event) =>
                           setNotesDrafts((current) => ({
@@ -1037,7 +1038,7 @@ export function AdminApplications() {
                         <p className="text-sm font-medium text-foreground">Cover letter</p>
                       </div>
                       <Textarea
-                        rows={10}
+                        rows={5}
                         value={selectedCoverLetter}
                         onChange={(event) =>
                           setCoverLetterDrafts((current) => ({
@@ -1076,26 +1077,38 @@ export function AdminApplications() {
 
                 <details open className="rounded-xl border border-white/10 bg-black/20">
                   <summary className="cursor-pointer list-none px-4 py-3">
-                    <p className="text-sm font-medium text-foreground">Packet support</p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Checklist, answer suggestions, and proof highlights stay here instead of taking over the main page.
-                    </p>
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-medium text-foreground">Packet checklist</p>
+                      <p className="text-xs text-muted-foreground">
+                        {packetChecklist.filter((i) => i.ready).length}/{packetChecklist.length} ready
+                      </p>
+                    </div>
                   </summary>
                   <div className="space-y-4 border-t border-white/10 px-4 py-4">
-                    <div className="grid gap-3 lg:grid-cols-2">
+                    <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
                       {packetChecklist.map((item) => (
-                        <div
+                        <button
                           key={item.label}
-                          className="rounded-lg border border-white/10 bg-black/30 px-3 py-3"
+                          type="button"
+                          className="rounded-lg border border-white/10 bg-black/30 px-3 py-2.5 text-left transition-colors hover:border-white/20 hover:bg-black/40"
+                          onClick={() => {
+                            const sectionId = item.section
+                            if (!sectionId) return
+                            const el = document.getElementById(sectionId)
+                            if (!el) return
+                            if (el.tagName === 'DETAILS') (el as HTMLDetailsElement).open = true
+                            el.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+                          }}
                         >
                           <div className="flex items-center gap-2">
-                            <Badge variant={item.ready ? 'default' : 'outline'}>
-                              {item.ready ? 'Ready' : 'Missing'}
-                            </Badge>
+                            <span className={cn(
+                              'inline-block h-2 w-2 rounded-full',
+                              item.ready ? 'bg-emerald-400' : 'bg-white/20'
+                            )} />
                             <p className="text-sm font-medium text-foreground">{item.label}</p>
                           </div>
-                          <p className="mt-2 text-sm text-muted-foreground">{item.detail}</p>
-                        </div>
+                          <p className="mt-1 text-xs text-muted-foreground">{item.detail}</p>
+                        </button>
                       ))}
                     </div>
 
@@ -1165,12 +1178,12 @@ export function AdminApplications() {
                   </div>
                 </details>
 
-                <details className="rounded-xl border border-white/10 bg-black/20">
+                <details id="section-touchpoints" className="rounded-xl border border-white/10 bg-black/20">
                   <summary className="cursor-pointer list-none px-4 py-3">
-                    <p className="text-sm font-medium text-foreground">Touchpoints</p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Recruiter, referral, and outreach notes stay on the application they belong to.
-                    </p>
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-medium text-foreground">Touchpoints</p>
+                      <p className="text-xs text-muted-foreground">{selectedTouchpoints.length} logged</p>
+                    </div>
                   </summary>
                   <div className="space-y-4 border-t border-white/10 px-4 py-4">
                     <div className="space-y-2">
@@ -1321,12 +1334,12 @@ export function AdminApplications() {
                   </div>
                 </details>
 
-                <details className="rounded-xl border border-white/10 bg-black/20">
+                <details id="section-interview-prep" className="rounded-xl border border-white/10 bg-black/20">
                   <summary className="cursor-pointer list-none px-4 py-3">
-                    <p className="text-sm font-medium text-foreground">Interview prep</p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Generate prep only when the role is worth preparing for.
-                    </p>
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-medium text-foreground">Interview prep</p>
+                      <p className="text-xs text-muted-foreground">{selectedPrep ? 'Generated' : 'Not generated'}</p>
+                    </div>
                   </summary>
                   <div className="space-y-4 border-t border-white/10 px-4 py-4">
                     <div className="flex flex-wrap gap-2">
@@ -1395,12 +1408,12 @@ export function AdminApplications() {
                   </div>
                 </details>
 
-                <details className="rounded-xl border border-white/10 bg-black/20">
+                <details id="section-recruiter-packet" className="rounded-xl border border-white/10 bg-black/20">
                   <summary className="cursor-pointer list-none px-4 py-3">
-                    <p className="text-sm font-medium text-foreground">Recruiter packet</p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Shareable packet links live here once the core packet is ready.
-                    </p>
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-medium text-foreground">Recruiter packet</p>
+                      <p className="text-xs text-muted-foreground">{selectedShareLinks.filter((l) => !l.revoked_at && !isExpired(l.expires_at)).length} active</p>
+                    </div>
                   </summary>
                   <div className="space-y-4 border-t border-white/10 px-4 py-4">
                     <Button
@@ -1499,18 +1512,16 @@ function DenseApplicationRow({
   selected,
   title,
   subtitle,
-  status,
-  secondaryMeta,
-  description,
+  packetReady,
+  followUp,
   onSelect,
   primaryAction,
 }: {
   selected: boolean
   title: string
   subtitle: string
-  status: ApplicationStatus
-  secondaryMeta: Array<string | null>
-  description: string
+  packetReady: boolean
+  followUp: string | null
   onSelect: () => void
   primaryAction: {
     label: string
@@ -1522,28 +1533,24 @@ function DenseApplicationRow({
     <button
       type="button"
       className={cn(
-        'w-full rounded-xl border px-3 py-3 text-left transition-colors',
+        'w-full rounded-lg border px-3 py-2.5 text-left transition-colors',
         selected
           ? 'border-accent/30 bg-accent/10'
           : 'border-white/10 bg-black/20 hover:border-white/20 hover:bg-black/30'
       )}
       onClick={onSelect}
     >
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex items-center justify-between gap-2">
         <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <p className="truncate text-sm font-medium text-foreground">{title}</p>
-            <StatusBadge status={status} />
+          <p className="truncate text-sm font-medium text-foreground">{title}</p>
+          <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
+            <span className="truncate">{subtitle || 'No company'}</span>
+            <span className={cn(
+              'inline-block h-1.5 w-1.5 rounded-full shrink-0',
+              packetReady ? 'bg-emerald-400' : 'bg-white/20'
+            )} />
+            {followUp && <span className="shrink-0">↻ {followUp}</span>}
           </div>
-          <p className="mt-1 text-xs text-muted-foreground">{subtitle || 'No company or location saved yet.'}</p>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {secondaryMeta.filter(Boolean).map((item) => (
-              <Badge key={`${title}-${item}`} variant="outline">
-                {item}
-              </Badge>
-            ))}
-          </div>
-          <p className="mt-2 text-sm text-muted-foreground">{description}</p>
         </div>
         <div
           className="shrink-0"
@@ -1606,13 +1613,13 @@ function EmptyPanelState({
   body: string
 }) {
   return (
-    <div className="flex min-h-[360px] flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-white/10 bg-black/10 p-6 text-center">
+    <div className="flex min-h-[200px] flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-white/10 bg-black/10 p-6 text-center">
       <div className="rounded-full border border-white/10 bg-black/20 p-3 text-muted-foreground">
         {icon}
       </div>
       <div>
-        <p className="text-base font-medium text-foreground">{title}</p>
-        <p className="mt-1 max-w-xl text-sm text-muted-foreground">{body}</p>
+        <p className="text-sm font-medium text-foreground">{title}</p>
+        <p className="mt-1 max-w-xl text-xs text-muted-foreground">{body}</p>
       </div>
     </div>
   )
@@ -1679,19 +1686,6 @@ function isCorePacketReady({
   return Boolean(resumeVariantId) && Boolean(coverLetter.trim())
 }
 
-function isPolishedPacketReady({
-  resumeVariantId,
-  coverLetter,
-  highlightCount,
-  followUpAt,
-}: {
-  resumeVariantId: string | null
-  coverLetter: string
-  highlightCount: number
-  followUpAt: string | null
-}) {
-  return isCorePacketReady({ resumeVariantId, coverLetter }) && highlightCount > 0 && Boolean(followUpAt)
-}
 
 function buildFollowUpPrompt(application: ApplicationRecord) {
   if (application.status === 'interview') {
@@ -1834,53 +1828,61 @@ function buildPacketChecklist({
         assignedVariant && application.resume_variant_id
           ? assignedVariant.name
           : 'Attach a role-specific resume.',
+      section: null,
     },
     {
       label: 'Cover letter',
       ready: Boolean(coverLetter.trim()),
-      detail: coverLetter.trim() ? 'Drafted and ready for editing.' : 'Draft or write the cover letter.',
+      detail: coverLetter.trim() ? 'Drafted and ready.' : 'Draft the cover letter.',
+      section: null,
     },
     {
       label: 'Answer bank',
       ready: candidateAnswers.length >= 3,
       detail:
         candidateAnswers.length >= 3
-          ? `${candidateAnswers.length} reusable answers available.`
-          : 'Add work authorization, compensation, and intro answers.',
+          ? `${candidateAnswers.length} answers`
+          : 'Add intro answers.',
+      section: null,
     },
     {
-      label: 'Proof highlights',
+      label: 'Highlights',
       ready: highlightCount > 0,
       detail:
         highlightCount > 0
-          ? `${highlightCount} role-specific highlight${highlightCount === 1 ? '' : 's'} ready.`
-          : 'No role-specific proof highlights yet.',
+          ? `${highlightCount} highlight${highlightCount === 1 ? '' : 's'}`
+          : 'No highlights yet.',
+      section: null,
     },
     {
       label: 'Interview prep',
       ready: Boolean(prep),
-      detail: prep ? 'Generated for this role.' : 'Generate prep when the role becomes interview-worthy.',
+      detail: prep ? 'Generated.' : 'Not generated.',
+      section: 'section-interview-prep',
     },
     {
       label: 'Follow-up',
       ready: Boolean(application.follow_up_at),
-      detail: application.follow_up_at ? `Next follow-up: ${application.follow_up_at}.` : 'Set a follow-up date.',
+      detail: application.follow_up_at ? application.follow_up_at : 'Not set.',
+      section: null,
     },
     {
-      label: 'CRM context',
+      label: 'CRM',
       ready: touchpointCount > 0,
       detail:
         touchpointCount > 0
-          ? `${touchpointCount} touchpoint${touchpointCount === 1 ? '' : 's'} logged.`
-          : 'No recruiter or referral notes logged yet.',
+          ? `${touchpointCount} touchpoint${touchpointCount === 1 ? '' : 's'}`
+          : 'No touchpoints.',
+      section: 'section-touchpoints',
     },
     {
       label: 'Recruiter packet',
       ready: activeShareLinkCount > 0,
       detail:
         activeShareLinkCount > 0
-          ? `${activeShareLinkCount} active share link${activeShareLinkCount === 1 ? '' : 's'}.`
-          : 'Create a share link when the packet is polished.',
+          ? `${activeShareLinkCount} link${activeShareLinkCount === 1 ? '' : 's'}`
+          : 'No share links.',
+      section: 'section-recruiter-packet',
     },
   ]
 }
@@ -1918,10 +1920,6 @@ async function copyText(
   }
 }
 
-function truncateText(value: string, maxLength: number) {
-  if (value.length <= maxLength) return value
-  return `${value.slice(0, Math.max(0, maxLength - 3)).trimEnd()}...`
-}
 
 function startOfToday() {
   const today = new Date()

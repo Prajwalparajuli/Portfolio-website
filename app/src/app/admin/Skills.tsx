@@ -61,15 +61,10 @@ export function AdminSkills() {
   }
 
   return (
-    <div className="space-y-8">
-      <div>
-        <h1 className="text-3xl font-bold gradient-text">Skills</h1>
-        <p className="text-muted-foreground mt-1">
-          Manage skills available for tagging projects
-        </p>
-      </div>
+    <div className="space-y-4">
+      <h1 className="text-2xl font-bold gradient-text">Skills</h1>
 
-      <div className="space-y-6">
+      <div className="space-y-4">
         <Card className="glass">
           <CardContent className="p-6 space-y-4">
             <div className="space-y-2">

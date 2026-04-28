@@ -180,30 +180,25 @@ export function AdminWatchlists() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold gradient-text">Watchlists</h1>
-          <p className="mt-1 text-muted-foreground">
-            Each watchlist is now a company dossier: discover roles, keep research visible, and jump straight into the people around that company.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-bold gradient-text">Watchlists</h1>
+        <div className="flex flex-wrap gap-1.5">
           <Link to={getAdminPath('jobs')}>
-            <Button variant="outline" className="gap-2">
-              <Compass className="h-4 w-4" />
-              Back to Discover
+            <Button size="sm" variant="outline" className="gap-1.5">
+              <Compass className="h-3.5 w-3.5" />
+              Discover
             </Button>
           </Link>
           <Link to={getAdminPath('contacts')}>
-            <Button variant="outline" className="gap-2">
-              <Users className="h-4 w-4" />
+            <Button size="sm" variant="outline" className="gap-1.5">
+              <Users className="h-3.5 w-3.5" />
               Contacts
             </Button>
           </Link>
-          <Button onClick={handleSyncAll} disabled={syncingAll} className="gap-2">
-            <RefreshCw className="h-4 w-4" />
-            {syncingAll ? 'Syncing...' : 'Run due watchlists now'}
+          <Button size="sm" onClick={handleSyncAll} disabled={syncingAll} className="gap-1.5">
+            <RefreshCw className="h-3.5 w-3.5" />
+            {syncingAll ? 'Syncing...' : 'Sync all'}
           </Button>
         </div>
       </div>
@@ -574,13 +569,13 @@ function DossierField({
   placeholder: string
 }) {
   return (
-    <div className="space-y-2">
-      <Label>{label}</Label>
+    <div className="space-y-1">
+      <Label className="text-[10px] uppercase text-muted-foreground">{label}</Label>
       <Textarea
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
-        className="min-h-[120px] border-white/10 bg-black/40"
+        className="min-h-[80px] border-white/10 bg-black/40 text-xs"
       />
     </div>
   )
@@ -598,9 +593,9 @@ function getDossierDraft(watchlist: CompanyWatchlist): DossierDraft {
 
 function StatusCell({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+    <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
       <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{label}</p>
-      <p className="mt-2 text-sm font-medium text-foreground">{value}</p>
+      <p className="mt-1 text-sm font-medium text-foreground">{value}</p>
     </div>
   )
 }
