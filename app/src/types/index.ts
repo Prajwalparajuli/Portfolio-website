@@ -1,3 +1,64 @@
+export interface NarrativeMetric {
+  label: string
+  value: string
+  context?: string
+}
+
+export interface NarrativeScreenshot {
+  url: string
+  caption: string
+}
+
+export interface NarrativeChartDataPoint {
+  label: string
+  value: number
+  /** Secondary value for stacked charts */
+  value2?: number
+  /** Custom color override */
+  color?: string
+}
+
+export interface NarrativeChart {
+  /** Chart type to render */
+  type: 'horizontal-bar' | 'stacked-bar' | 'donut'
+  /** Chart title */
+  title: string
+  /** Data points */
+  data: NarrativeChartDataPoint[]
+  /** Format for values */
+  valueFormat?: 'percent' | 'number' | 'currency'
+  /** X-axis label */
+  xLabel?: string
+  /** Y-axis label */
+  yLabel?: string
+  /** Labels for stacked chart legend */
+  legend?: string[]
+  /** Accent note below chart */
+  insight?: string
+}
+
+export interface NarrativeCallout {
+  title: string
+  value: string
+  description: string
+  type: 'success' | 'warning' | 'info' | 'critical'
+}
+
+export interface NarrativePipelineStep {
+  label: string
+  detail: string
+  icon?: string
+}
+
+export interface NarrativeTheme {
+  /** CSS color for accent elements */
+  accent: string
+  /** Secondary accent for gradients */
+  accentAlt?: string
+  /** Layout variant changes the overall page feel */
+  variant?: 'default' | 'dashboard' | 'showcase' | 'research'
+}
+
 export interface StructuredNarrative {
   hook: string
   problem: string
@@ -5,6 +66,28 @@ export interface StructuredNarrative {
   results: string[]
   learned: string[]
   summary: string
+  /** Quantified metrics displayed as stat cards */
+  metrics?: NarrativeMetric[]
+  /** Screenshots/diagrams carousel */
+  screenshots?: NarrativeScreenshot[]
+  /** Architecture diagram (Mermaid source or image URL) */
+  architecture?: string
+  /** Specific tech decisions worth calling out */
+  techHighlights?: string[]
+  /** Demo URL override (if different from project.demo_url) */
+  demoUrl?: string
+  /** Interactive data visualizations */
+  charts?: NarrativeChart[]
+  /** Per-project visual theme */
+  theme?: NarrativeTheme
+  /** Prominent finding/result callout cards */
+  callouts?: NarrativeCallout[]
+  /** Visual pipeline steps */
+  pipelineSteps?: NarrativePipelineStep[]
+  /** Path to demo video/webp recording */
+  demoVideo?: string
+  /** URL for inline iframe embed (compact preview) */
+  embedUrl?: string
 }
 
 export interface Project {
