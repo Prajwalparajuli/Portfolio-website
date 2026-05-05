@@ -29,21 +29,18 @@ type NavItem = {
 const primaryItems: NavItem[] = [
   { href: getAdminPath('jobs'), label: 'Discover', icon: Compass },
   { href: getAdminPath('applications'), label: 'Applications', icon: BriefcaseBusiness },
-  { href: getAdminPath('today'), label: 'Today', icon: LayoutDashboard },
-]
-
-const utilityItems: NavItem[] = [
-  { href: getAdminPath('inbox'), label: 'Inbox', icon: BellRing },
-  { href: getAdminPath('watchlists'), label: 'Watchlists', icon: Wrench },
-  { href: getAdminPath('contacts'), label: 'Contacts', icon: Users },
-  { href: getAdminPath('activity'), label: 'Activity', icon: Activity },
-]
-
-const profileItems: NavItem[] = [
   { href: getAdminPath('resume'), label: 'Resume', icon: FileText },
   { href: getAdminPath('projects'), label: 'Projects', icon: FolderKanban },
+]
+
+const moreItems: NavItem[] = [
+  { href: getAdminPath('today'), label: 'Today', icon: LayoutDashboard },
   { href: getAdminPath('answers'), label: 'Answer Bank', icon: NotebookPen },
+  { href: getAdminPath('contacts'), label: 'Contacts', icon: Users },
   { href: getAdminPath('skills'), label: 'Skills', icon: Tags },
+  { href: getAdminPath('inbox'), label: 'Inbox', icon: BellRing },
+  { href: getAdminPath('watchlists'), label: 'Watchlists', icon: Wrench },
+  { href: getAdminPath('activity'), label: 'Activity', icon: Activity },
   { href: getAdminPath('settings'), label: 'Settings', icon: Settings },
 ]
 
@@ -70,8 +67,7 @@ export function AdminSidebar() {
           ))}
         </div>
 
-        <CompactGroup title="Utilities" items={utilityItems} pathname={pathname} />
-        <CompactGroup title="Profile" items={profileItems} pathname={pathname} />
+        <CompactGroup title="More" items={moreItems} pathname={pathname} />
       </div>
 
       <div className="space-y-2 border-t border-border/50 px-3 py-3">

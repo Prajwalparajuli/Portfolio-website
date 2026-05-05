@@ -945,6 +945,75 @@ export function AdminApplications() {
                         </Button>
                       </Link>
                     </div>
+                    {/* Inline tailored resume preview */}
+                    {selectedAssignedVariant && selectedApplication.resume_variant_id && (
+                      <details className="mt-2 rounded-lg border border-white/10 bg-black/20">
+                        <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2 text-xs text-muted-foreground hover:text-foreground">
+                          <span>Preview tailored resume: {selectedAssignedVariant.name}</span>
+                          <Badge variant="outline" className="text-[10px]">{selectedAssignedVariant.variantType}</Badge>
+                        </summary>
+                        <div className="space-y-3 border-t border-white/10 px-3 py-3">
+                          {(() => {
+                            const summarySection = selectedAssignedVariant.content?.sections?.find(
+                              (s: { type: string }) => s.type === 'summary'
+                            ) as { text?: string } | undefined
+                            const expSection = selectedAssignedVariant.content?.sections?.find(
+                              (s: { type: string }) => s.type === 'experience'
+                            ) as { items?: Array<{ kind: string; titleOverride?: string; role?: string; bullets: string[] }> } | undefined
+
+                            return (
+                              <>
+                                {summarySection?.text && (
+                                  <div>
+                                    <p className="mb-1 text-[10px] uppercase tracking-wider text-muted-foreground">Summary</p>
+                                    <p className="text-xs leading-5 text-foreground/90">{summarySection.text}</p>
+                                  </div>
+                                )}
+                                {expSection?.items && expSection.items.length > 0 && (
+                                  <div>
+                                    <p className="mb-1.5 text-[10px] uppercase tracking-wider text-muted-foreground">
+                                      Experience ({expSection.items.length} items)
+                                    </p>
+                                    <div className="space-y-2">
+                                      {expSection.items.slice(0, 3).map((item, idx) => (
+                                        <div key={idx} className="rounded-md border border-white/5 bg-black/20 px-2.5 py-2">
+                                          <p className="text-xs font-medium text-foreground">
+                                            {item.kind === 'project' ? item.titleOverride : item.role}
+                                          </p>
+                                          <ul className="mt-1 space-y-0.5">
+                                            {item.bullets.slice(0, 2).map((bullet, bIdx) => (
+                                              <li key={bIdx} className="text-[11px] text-muted-foreground leading-4">
+                                                • {bullet.length > 120 ? `${bullet.slice(0, 120)}...` : bullet}
+                                              </li>
+                                            ))}
+                                            {item.bullets.length > 2 && (
+                                              <li className="text-[10px] text-muted-foreground/60">
+                                                +{item.bullets.length - 2} more bullets
+                                              </li>
+                                            )}
+                                          </ul>
+                                        </div>
+                                      ))}
+                                      {expSection.items.length > 3 && (
+                                        <p className="text-[10px] text-muted-foreground/60">
+                                          +{expSection.items.length - 3} more experience items
+                                        </p>
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+                                <Link to={getAdminPath(`resume?application=${selectedApplication.id}`)}>
+                                  <Button size="sm" variant="outline" className="gap-1.5 text-xs h-7">
+                                    <NotebookPen className="h-3 w-3" />
+                                    Edit in Resume Builder
+                                  </Button>
+                                </Link>
+                              </>
+                            )
+                          })()}
+                        </div>
+                      </details>
+                    )}
                   </div>
 
                   <div>

@@ -3,6 +3,7 @@ import { PublicLayout } from './app/PublicLayout'
 import { AdminLayout } from './app/AdminLayout'
 import { HomePage } from './app/pages/HomePage'
 import { ProjectPage } from './app/pages/ProjectPage'
+import { AllProjectsPage } from './app/pages/AllProjectsPage'
 import { ResumePage } from './app/pages/ResumePage'
 import { RecruiterPacketPage } from './app/pages/RecruiterPacketPage'
 import { AuthProvider } from './components/auth/AuthProvider'
@@ -36,6 +37,7 @@ function App() {
           {/* Public Routes */}
           <Route path="/" element={<PublicLayout />}>
             <Route index element={<HomePage />} />
+            <Route path="projects" element={<AllProjectsPage />} />
             <Route path="projects/:slug" element={<ProjectPage />} />
             <Route path="resume" element={<ResumePage />} />
             <Route path="packet/:token" element={<RecruiterPacketPage />} />

@@ -184,13 +184,13 @@ export function BentoGrid({ projects, isLoading = false }: BentoGridProps) {
             viewport={{ once: true }}
             className="mt-10 text-center"
           >
-            <a
-              href="#projects"
+            <Link
+              to="/projects"
               className="inline-flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
             >
               View all {projects.length} projects
               <ArrowUpRight className="h-4 w-4" />
-            </a>
+            </Link>
           </motion.div>
         )}
       </div>

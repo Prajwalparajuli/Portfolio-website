@@ -951,17 +951,36 @@ export function AdminJobs() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold gradient-text">Discover</h1>
         <div className="flex flex-wrap gap-1.5">
+          <Button
+            size="sm"
+            className="gap-2"
+            disabled={runningQueryPack || isSearching}
+            onClick={() => void handleRunQueryPack()}
+          >
+            {runningQueryPack ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+            {runningQueryPack ? 'Searching...' : 'Find jobs for me'}
+          </Button>
           <Link to={getAdminPath('applications')}>
             <Button size="sm" variant="outline">Applications</Button>
-          </Link>
-          <Link to={getAdminPath('today')}>
-            <Button size="sm" variant="outline">Today</Button>
           </Link>
         </div>
       </div>
 
       <Card className="glass">
-        <CardContent className="space-y-4 p-4 md:p-5">
+        <CardContent className="p-0">
+          <details className="group">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 md:px-5">
+              <div className="flex items-center gap-3">
+                <Search className="h-4 w-4 text-muted-foreground" />
+                <div>
+                  <p className="text-sm font-medium text-foreground">Search &amp; sources</p>
+                  <p className="text-xs text-muted-foreground">Paste a job URL, run a manual search, or manage saved sources</p>
+                </div>
+              </div>
+              <span className="text-xs text-muted-foreground group-open:hidden">▸ Expand</span>
+              <span className="hidden text-xs text-muted-foreground group-open:inline">▾ Collapse</span>
+            </summary>
+            <div className="space-y-4 border-t border-white/10 p-4 md:p-5">
           <form
             className="rounded-xl border border-accent/20 bg-accent/5 p-3"
             onSubmit={handleQuickJobUrl}
@@ -1189,16 +1208,6 @@ export function AdminJobs() {
               <Button type="submit" className="gap-2" disabled={isSearching}>
                 {isSearching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
                 {isSearching ? 'Searching...' : 'Search jobs'}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className="gap-2"
-                disabled={runningQueryPack || isSearching}
-                onClick={() => void handleRunQueryPack()}
-              >
-                {runningQueryPack ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                {runningQueryPack ? 'Running query pack...' : 'Run portfolio query pack'}
               </Button>
               <Button
                 type="button"
@@ -1450,6 +1459,8 @@ export function AdminJobs() {
               </div>
             </SupportDisclosure>
           </div>
+        </div>
+          </details>
         </CardContent>
       </Card>
 

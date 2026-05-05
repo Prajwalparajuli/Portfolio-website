@@ -1,11 +1,13 @@
 import { type ReactNode, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
+  Bell,
   BriefcaseBusiness,
   CheckCircle2,
   Compass,
   FileText,
   FolderKanban,
+  Loader2,
   NotebookPen,
   RefreshCw,
   Sparkles,
@@ -15,7 +17,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { getAdminPath } from '@/lib/adminConfig'
-import { discoverWatchlist, runScheduledWatchlists } from '@/lib/careerCockpit'
+import { discoverWatchlist, dispatchCareerNotifications, runScheduledWatchlists } from '@/lib/careerCockpit'
 import {
   getAllProjects,
   getApplications,
@@ -330,11 +332,47 @@ export function AdminDashboard() {
     }
   }
 
+  const [dispatchingNotifications, setDispatchingNotifications] = useState(false)
+  const [notificationResult, setNotificationResult] = useState<string | null>(null)
+
+  const handleTestNotifications = async () => {
+    setDispatchingNotifications(true)
+    setNotificationResult(null)
+    try {
+      const result = await dispatchCareerNotifications()
+      setNotificationResult(
+        `✓ ${result.notificationsCreated} notifications created, ${result.emailLines} emails queued`
+      )
+      setTimeout(() => setNotificationResult(null), 6000)
+    } catch (error) {
+      setNotificationResult(
+        error instanceof Error ? `✗ ${error.message}` : '✗ Failed to dispatch'
+      )
+    } finally {
+      setDispatchingNotifications(false)
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold gradient-text">Today</h1>
-        <div className="flex flex-wrap gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
+          {notificationResult && (
+            <span className={`text-xs ${notificationResult.startsWith('✓') ? 'text-green-400' : 'text-red-400'}`}>
+              {notificationResult}
+            </span>
+          )}
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5"
+            disabled={dispatchingNotifications}
+            onClick={() => void handleTestNotifications()}
+          >
+            {dispatchingNotifications ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Bell className="h-3.5 w-3.5" />}
+            {dispatchingNotifications ? 'Sending...' : 'Test notifications'}
+          </Button>
           <Link to={getAdminPath('jobs')}>
             <Button size="sm" className="gap-1.5">
               <Compass className="h-3.5 w-3.5" />

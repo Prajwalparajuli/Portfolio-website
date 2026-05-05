@@ -1991,114 +1991,82 @@ export function AdminResumeEditor() {
             )}
 
             <TabsContent value="resume" className="mt-0">
-              <div className="grid gap-3 md:grid-cols-[minmax(240px,1fr)_auto]">
-                <div className="space-y-3">
-                  {!variantsSupported && (
-                    <div className="rounded-lg border border-yellow-800/40 bg-yellow-950/20 px-3 py-2 text-[11px] text-yellow-300/80">
-                      Saved variants are disabled until <code className="text-yellow-200">003_resume_foundation.sql</code> is applied.
-                      You can still edit and save the legacy master resume safely.
-                    </div>
-                  )}
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Current variant</Label>
-                      <select
-                        value={activeVariant?.id ?? ''}
-                        onChange={(e) => handleSelectVariant(e.target.value)}
-                        className="w-full rounded-md border border-white/10 bg-black/40 px-3 py-2 text-sm"
-                      >
-                        {resumeVariants.map((variant) => (
-                          <option key={variant.id} value={variant.id}>
-                            {variant.name}{variant.isPrimary ? ' · Primary' : ''}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Variant name</Label>
-                      <Input
-                        value={activeVariant?.name ?? ''}
-                        onChange={(e) => updateActiveVariant({ name: e.target.value })}
-                        placeholder="Master Resume"
-                        className="bg-black/40 border-white/10"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Target role</Label>
-                      <Input
-                        value={activeVariant?.sourceJobTitle ?? ''}
-                        onChange={(e) => updateActiveVariant({ sourceJobTitle: e.target.value })}
-                        placeholder="Machine Learning Engineer"
-                        className="bg-black/40 border-white/10"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Target company</Label>
-                      <Input
-                        value={activeVariant?.sourceJobCompany ?? ''}
-                        onChange={(e) => updateActiveVariant({ sourceJobCompany: e.target.value })}
-                        placeholder="Company name"
-                        className="bg-black/40 border-white/10"
-                      />
-                    </div>
-                    <div className="space-y-1 md:col-span-2">
-                      <Label className="text-xs text-muted-foreground">Job URL</Label>
-                      <Input
-                        value={activeVariant?.sourceJobUrl ?? ''}
-                        onChange={(e) => updateActiveVariant({ sourceJobUrl: e.target.value })}
-                        placeholder="https://company.com/jobs/..."
-                        className="bg-black/40 border-white/10"
-                      />
-                    </div>
-                  </div>
-                  <p className="text-[11px] text-muted-foreground/60">
-                    Save before switching if you want to keep the current draft changes.
-                  </p>
+              {!variantsSupported && (
+                <div className="rounded-lg border border-yellow-800/40 bg-yellow-950/20 px-3 py-2 text-[11px] text-yellow-300/80 mb-3">
+                  Saved variants are disabled until <code className="text-yellow-200">003_resume_foundation.sql</code> is applied.
                 </div>
+              )}
+              {/* Compact variant selector row */}
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  value={activeVariant?.id ?? ''}
+                  onChange={(e) => handleSelectVariant(e.target.value)}
+                  className="h-8 rounded-md border border-white/10 bg-black/40 px-2 text-sm min-w-[200px]"
+                >
+                  {resumeVariants.map((variant) => (
+                    <option key={variant.id} value={variant.id}>
+                      {variant.name}{variant.isPrimary ? ' · Primary' : ''}
+                    </option>
+                  ))}
+                </select>
 
-                <div className="flex flex-wrap items-start gap-2 md:justify-end">
-                  {activeVariant?.isPrimary ? (
-                    <Badge variant="secondary" className="bg-green-500/10 text-green-300 border border-green-500/20">
-                      Primary master
-                    </Badge>
-                  ) : activeVariant ? (
-                    <Badge variant="secondary" className="bg-blue-500/10 text-blue-300 border border-blue-500/20">
-                      {activeVariant.variantType}
-                    </Badge>
-                  ) : null}
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={handleDuplicateVariant}
+                {activeVariant?.isPrimary ? (
+                  <Badge variant="secondary" className="bg-green-500/10 text-green-300 border border-green-500/20 text-[10px]">
+                    Primary master
+                  </Badge>
+                ) : activeVariant ? (
+                  <Badge variant="secondary" className="bg-blue-500/10 text-blue-300 border border-blue-500/20 text-[10px]">
+                    {activeVariant.variantType}
+                  </Badge>
+                ) : null}
+
+                <div className="ml-auto flex items-center gap-1.5">
+                  <Button type="button" variant="outline" size="sm" onClick={handleDuplicateVariant}
                     disabled={saving || !resume || !settings || !variantsSupported}
-                    className="glass border-white/10 gap-2"
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                    Duplicate
+                    className="glass border-white/10 gap-1.5 h-7 text-xs px-2">
+                    <Plus className="h-3 w-3" /> Duplicate
                   </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={handleSetAsPrimaryVariant}
+                  <Button type="button" variant="outline" size="sm" onClick={handleSetAsPrimaryVariant}
                     disabled={saving || !resume || !settings || !variantsSupported || activeVariant?.isPrimary}
-                    className="glass border-white/10"
-                  >
+                    className="glass border-white/10 h-7 text-xs px-2">
                     Set as master
                   </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={handleDeleteVariant}
+                  <Button type="button" variant="ghost" size="sm" onClick={handleDeleteVariant}
                     disabled={saving || !variantsSupported || !activeVariant || activeVariant.isPrimary}
-                    className="text-destructive hover:text-destructive"
-                  >
+                    className="text-destructive hover:text-destructive h-7 w-7 p-0">
                     <Trash2 className="h-3.5 w-3.5" />
                   </Button>
                 </div>
               </div>
+
+              {/* Collapsed variant metadata */}
+              <details className="mt-2 rounded-lg border border-white/10 bg-black/20">
+                <summary className="cursor-pointer list-none px-3 py-2 text-xs text-muted-foreground hover:text-foreground">
+                  Edit variant details (name, target role, company, URL)
+                </summary>
+                <div className="grid gap-2 border-t border-white/10 px-3 py-3 md:grid-cols-4">
+                  <div className="space-y-1">
+                    <Label className="text-[10px] text-muted-foreground">Variant name</Label>
+                    <Input value={activeVariant?.name ?? ''} onChange={(e) => updateActiveVariant({ name: e.target.value })}
+                      placeholder="Master Resume" className="bg-black/40 border-white/10 h-8 text-xs" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[10px] text-muted-foreground">Target role</Label>
+                    <Input value={activeVariant?.sourceJobTitle ?? ''} onChange={(e) => updateActiveVariant({ sourceJobTitle: e.target.value })}
+                      placeholder="ML Engineer" className="bg-black/40 border-white/10 h-8 text-xs" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[10px] text-muted-foreground">Target company</Label>
+                    <Input value={activeVariant?.sourceJobCompany ?? ''} onChange={(e) => updateActiveVariant({ sourceJobCompany: e.target.value })}
+                      placeholder="Company" className="bg-black/40 border-white/10 h-8 text-xs" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[10px] text-muted-foreground">Job URL</Label>
+                    <Input value={activeVariant?.sourceJobUrl ?? ''} onChange={(e) => updateActiveVariant({ sourceJobUrl: e.target.value })}
+                      placeholder="https://..." className="bg-black/40 border-white/10 h-8 text-xs" />
+                  </div>
+                </div>
+              </details>
             </TabsContent>
 
             <TabsContent value="layout" className="mt-0 space-y-3">
