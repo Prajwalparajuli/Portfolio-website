@@ -76,11 +76,85 @@ export const narrativeOverrides: Record<string, StructuredNarrative> = {
     ],
     summary: 'A research-grade benchmarking pipeline evaluating five sub-3B parameter Vision-Language Models on industrial safety auditing under strict hardware constraints (6GB VRAM). Features a curated 100-image benchmark with adversarial conditions, five prompting strategies, deterministic multi-run validation, and McNemar statistical testing to produce deployment-ready model selection guidance.',
     metrics: [
-      { label: 'Models', value: '5', context: 'sub-3B VLMs' },
+      { label: 'Models', value: '6', context: 'sub-3B VLMs' },
       { label: 'Strategies', value: '5', context: 'prompting' },
       { label: 'Runs', value: '75', context: 'configs' },
       { label: 'Images', value: '100', context: 'Golden set' },
+      { label: 'McNemar Tests', value: '7', context: 'significance CSVs' },
+      { label: 'Paper', value: 'NeurIPS', context: 'format' },
     ],
+
+    screenshots: [
+      { url: '/projects/vlm/baseline_danger_bar.png', caption: 'Baseline Danger Classification — Zero-shot accuracy across all 6 models on the safety-critical binary task' },
+      { url: '/projects/vlm/modality_collapse_slope.png', caption: 'Modality Collapse — CLAHE preprocessing degrades VLM performance by shifting attention to texture artifacts' },
+      { url: '/projects/vlm/hardware_bubble_vram.png', caption: 'Hardware Profiling — VRAM usage vs inference latency bubble chart across all model architectures' },
+      { url: '/projects/vlm/foveation_vs_baseline.png', caption: 'Foveation Enhancement vs Baseline — Measuring impact of attention-guided cropping on gauge reading accuracy' },
+      { url: '/projects/vlm/foveation_demo.png', caption: 'Foveation Pipeline Demo — Center-crop attention preprocessing applied to industrial gauge images' },
+      { url: '/projects/vlm/gauge_sample.jpg', caption: 'Golden 100 Dataset — Analog pressure gauge with visual stressors (glare, partial obstruction)' },
+      { url: '/projects/vlm/pipe_corroded_sample.jpg', caption: 'Golden 100 Dataset — Corroded industrial pipe requiring binary defect classification' },
+      { url: '/projects/vlm/pipe_clean_sample.jpg', caption: 'Golden 100 Dataset — Non-corroded pipe baseline (texture overlap challenge with corroded samples)' },
+    ],
+
+    callouts: [
+      {
+        title: 'Best Model',
+        value: 'MiniCPM-V (0.699 F1 w/ CLAHE+Decomp)',
+        description: 'Highest F1 and lowest FNR (0.163) under the best prompting strategy. Only model to maintain consistent performance across all 5 strategies with FNR below 0.40.',
+        type: 'success',
+      },
+      {
+        title: 'Decomposition > CoT',
+        value: 'p = 0.0000 (Qwen2-VL)',
+        description: 'Rule Decomposition statistically outperforms Chain-of-Thought for logic compliance in 4 of 6 models (McNemar p < 0.05). CoT causes Attention Overshadowing in smaller architectures.',
+        type: 'info',
+      },
+      {
+        title: 'Modality Collapse',
+        value: 'CLAHE degrades SmolVLM to 0.000 F1',
+        description: 'Contrast-adaptive preprocessing causes catastrophic failure in sub-1B models — SmolVLM drops from 0.444 baseline F1 to 0.000 under CLAHE+CoT. The model fixates on enhanced texture patterns.',
+        type: 'critical',
+      },
+      {
+        title: 'Safety-Critical Gap',
+        value: 'Best FNR still 16.3%',
+        description: 'Even the top-performing configuration misses 1 in 6 real defects. No sub-3B model achieves FNR below 10% — confirming these models require human-in-the-loop deployment for safety-critical auditing.',
+        type: 'warning',
+      },
+    ],
+
+    charts: [
+      {
+        type: 'horizontal-bar' as const,
+        title: 'Best F1 Score by Model (Best Strategy)',
+        data: [
+          { label: 'MiniCPM-V', value: 0.699, color: '#22c55e' },
+          { label: 'InternVL2', value: 0.687, color: '#3b82f6' },
+          { label: 'Qwen2-VL', value: 0.621, color: '#8b5cf6' },
+          { label: 'SmolVLM', value: 0.444, color: '#f59e0b' },
+          { label: 'Janus-Pro', value: 0.299, color: '#ef4444' },
+          { label: 'Gemma 4', value: 0.117, color: '#6b7280' },
+        ],
+        valueFormat: 'number' as const,
+        xLabel: 'F1 Score',
+        insight: 'MiniCPM-V with CLAHE+Decomposition achieves the highest F1 (0.699) — the only model to exceed 0.65 on the safety-critical benchmark.',
+      },
+      {
+        type: 'horizontal-bar' as const,
+        title: 'False Negative Rate — Lower is Safer',
+        data: [
+          { label: 'MiniCPM-V', value: 0.163, color: '#22c55e' },
+          { label: 'InternVL2', value: 0.181, color: '#3b82f6' },
+          { label: 'Qwen2-VL', value: 0.267, color: '#8b5cf6' },
+          { label: 'SmolVLM', value: 0.588, color: '#f59e0b' },
+          { label: 'Janus-Pro', value: 0.807, color: '#ef4444' },
+          { label: 'Gemma 4', value: 0.933, color: '#6b7280' },
+        ],
+        valueFormat: 'number' as const,
+        xLabel: 'FNR (↓ better)',
+        insight: 'FNR is the critical metric for industrial safety — a missed defect (false negative) can cause catastrophic failure. Even MiniCPM-V misses 16.3% of real defects.',
+      },
+    ],
+
     techHighlights: [
       'PyTorch + HuggingFace Transformers with 4-bit NF4 quantization (Bitsandbytes) for models exceeding 2B parameters',
       'Custom CLAHE preprocessing pipeline for contrast-adaptive enhancement of industrial images',
@@ -88,10 +162,10 @@ export const narrativeOverrides: Record<string, StructuredNarrative> = {
       'ANLS (reading accuracy) + LCR (logic compliance) + F1 + Accuracy metrics designed for safety-critical evaluation',
       'Automated failure analysis pipeline mapping neural architecture patterns to safety-critical tradeoffs (FPR vs FNR)',
     ],
-    architecture: 'graph LR\n  A[Golden 100 Dataset] -->|Ingest| B[Preprocessing]\n  B -->|Raw| C[Baseline Inference]\n  B -->|CLAHE| D[Contrast Pipeline]\n  C --> E[5 VLMs × Zero-Shot]\n  C --> F[5 VLMs × CoT]\n  C --> G[5 VLMs × Decomposition]\n  D --> H[5 VLMs × CLAHE+Decomp]\n  D --> I[5 VLMs × CLAHE+CoT]\n  E & F & G & H & I --> J[Evaluation Engine]\n  J -->|Parse + Score| K[Metrics & McNemar Tests]\n  K --> L[Failure Analysis & Architectural Insights]',
+    architecture: '/projects/vlm/hardware_bubble_vram.png',
     pipelineSteps: [
       { label: 'Dataset Curation', detail: 'Built the "Golden 100": 50 analog gauges with visual stressors (glare, oblique angles, obstructions) + 50 pipeline images (corroded vs non-corroded) with texture overlap challenges. 200 evaluation rows testing opposing SOP rules.' },
-      { label: 'Model Setup', detail: 'Configured 5 sub-3B VLMs with precision-aware loading: bfloat16 for models under 1.5B, 4-bit NF4 quantization for larger models. Dual virtual environments for dependency isolation.' },
+      { label: 'Model Setup', detail: 'Configured 6 sub-3B VLMs with precision-aware loading: bfloat16 for models under 1.5B, 4-bit NF4 quantization for larger models. Dual virtual environments for dependency isolation.' },
       { label: 'Inference Pipeline', detail: 'Ran 5 prompting strategies (Baseline, CoT, Decomposition, CLAHE+Decomp, CLAHE+CoT) across all models with greedy decoding and repetition penalty 1.1.' },
       { label: 'Multi-Run Validation', detail: 'Repeated each configuration 3 times with deterministic seeds. Aggregated metrics across runs to capture variance and prevent arbitrary benchmarking.' },
       { label: 'Statistical Testing', detail: 'Applied McNemar\'s exact paired test to identify statistically significant differences (p < 0.05) between model pairs, preventing false claims from random fluctuations.' },
