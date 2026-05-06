@@ -62,6 +62,8 @@ function resetMeta() {
   setMeta('twitter:image', '')
 }
 
+import { narrativeOverrides } from '@/lib/narrativeOverrides'
+
 export function ProjectPage() {
   const { settings } = useOutletContext<OutletContext>()
   const { slug } = useParams<{ slug: string }>()
@@ -71,6 +73,9 @@ export function ProjectPage() {
   useEffect(() => {
     if (slug) {
       getProjectBySlug(slug).then((data) => {
+        if (data && !data.structured_narrative && slug in narrativeOverrides) {
+          data.structured_narrative = narrativeOverrides[slug]
+        }
         setProject(data)
         setIsLoading(false)
       })

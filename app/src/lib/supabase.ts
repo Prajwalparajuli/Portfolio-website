@@ -428,8 +428,8 @@ const PROJECT_WRITE_COLUMNS = [
   'display_order', 'is_published',
 ] as const
 
-/** Optional column; only include if your DB has run the ask_me_about migration. */
-const PROJECT_OPTIONAL_COLUMNS = ['ask_me_about'] as const
+/** Optional columns; only include if your DB has run the relevant migrations. */
+const PROJECT_OPTIONAL_COLUMNS = ['ask_me_about', 'structured_narrative'] as const
 
 function projectPayload(project: Partial<Project>, includeOptional = true): Record<string, unknown> {
   const out: Record<string, unknown> = {}
