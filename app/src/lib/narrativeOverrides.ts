@@ -173,4 +173,121 @@ export const narrativeOverrides: Record<string, StructuredNarrative> = {
       variant: 'research',
     },
   },
+
+  'lifeos-energy-first-productivity-for-adhd-neurodivergent-minds': {
+    hook: 'A productivity system that doesn\'t adapt to your cognitive state is a system that will eventually burn you out. LifeOS treats your energy as the primary constraint — not your time.',
+    problem: 'Every major productivity app — Notion, Todoist, TickTick, Motion — assumes a constant operator. They schedule, remind, and punish uniformly regardless of whether you\'re in deep focus or approaching burnout. For neurodivergent users and knowledge workers with executive function challenges, this rigidity creates a destructive cycle: the tool designed to help becomes another source of guilt. No existing product adapts its UI density, animation speed, typography, AI tone, and interaction patterns based on real-time cognitive state.',
+    approach: 'I built LifeOS as a full-stack productivity operating system across a TurboRepo monorepo (web + mobile + desktop + AI agent). The core innovation is a neuro-adaptive engine: three cognitive themes (Focus, Calm, Rest) that swap 380+ CSS variables each — changing not just colors, but font families, animation speeds, touch target sizes, shadow systems, and AI personality. An 8-signal burnout detection algorithm with personal baselines monitors behavioral patterns passively, and the system intervenes before collapse — not after.',
+    results: [
+      '152,000 lines of TypeScript across 699 source files, 289 React components, 27 database models, and 67 server actions',
+      '14 feature modules: Tasks, Habits, Goals, Journal, Notes, Focus Timer, Calendar, Vision Board, Weekly Review, Rituals, Protocol Hub, Economy/Shop, Insights, Onboarding',
+      '12 AI-powered features via Gemini (Day Planner, NLP Parse, Task Decomposition, Burnout Detection, Cortex Chat, Journal Sentiment, Weekly Digest, and more)',
+      '3 neuro-adaptive themes with zero-JS-rerender switching — pure CSS variable theming via [data-theme] attribute, 0.5s cross-fade with prefers-reduced-motion guard',
+      'P2P device sync via WebRTC data channels — QR code pairing, end-to-end encryption, CRDT-style conflict resolution, zero cloud middleman',
+      'Additive-only gamification engine — XP with no punishment mechanics, streak freezes, recovery bonuses, and a virtual economy with equippable effects',
+    ],
+    learned: [
+      'Neuro-adaptive theming requires going far beyond color palettes — Focus uses monospace typography and 150ms animations for deep work, while Rest uses 48px touch targets, 450ms animations, and "pillow" border radii to physically slow interaction pace',
+      'Burnout detection needs false-positive guards as much as sensitivity — our 8-signal scorer requires 14-day data maturity, 3+ active signal sources, and checks for streak exceptions, momentum exceptions, and already-adapted suppression before flagging',
+      'Building P2P sync without a server is a 14-file engineering challenge — WebRTC signaling, PBKDF2 key derivation, emoji-based verification, field-level merge strategies, compressed payloads via pako, and a full state machine with progress tracking',
+    ],
+    summary: 'LifeOS is a neuro-adaptive productivity operating system built as a TurboRepo monorepo spanning web (Next.js 14), mobile (Capacitor), desktop (Electron), and an AI agent service. It features 3 cognitive themes that adapt the entire UI to your energy level, an 8-signal burnout detection algorithm with personal baselines, 12 Gemini-powered AI features including circadian-aware day planning, P2P device sync via WebRTC, and a 6,057-line CSS design system with clay surfaces, glassmorphism, and premium tile patterns.',
+    metrics: [
+      { label: 'LOC', value: '152K', context: 'TypeScript' },
+      { label: 'Components', value: '289', context: 'React' },
+      { label: 'DB Models', value: '27', context: 'Prisma' },
+      { label: 'AI Features', value: '12', context: 'Gemini-powered' },
+      { label: 'CSS System', value: '6,057', context: 'lines' },
+      { label: 'Widgets', value: '20', context: 'drag-resize' },
+    ],
+
+    demoUrl: 'https://lifeos.vc',
+    screenshots: [
+      { url: '/projects/lifeos/hero.png', caption: '"Energy. Not Lists." — LifeOS landing page with Focus / Calm / Rest mode toggle. The entire product adapts to your cognitive state.' },
+      { url: '/projects/lifeos/rest_mode.png', caption: 'Rest Mode — Quick wins, breathing exercises, motivational quotes, and a gentle 5-minute timer. The UI physically slows down with 450ms animations and pillow-radius cards.' },
+    ],
+
+    callouts: [
+      {
+        title: 'Neuro-Adaptive Engine',
+        value: '380+ CSS vars × 3 themes',
+        description: 'Focus (monospace, 150ms, OLED black), Calm (serif, 350ms, sunset gradient), Rest (48px touch targets, 450ms, pillow radii). Zero JS re-renders — pure [data-theme] attribute switching with synchronous localStorage read before first paint.',
+        type: 'info',
+      },
+      {
+        title: 'Burnout Detection',
+        value: '8 signals, 5 false-positive guards',
+        description: 'Weighted composite scorer using task completion trends, zone avoidance, habit erosion, session abandonment, journal silence, and NeuroScore slope. Personal baselines — not fixed thresholds. Journal sentiment modifier adjusts final score ±8%.',
+        type: 'warning',
+      },
+      {
+        title: 'P2P Sync',
+        value: 'Zero cloud middleman',
+        description: '14-file WebRTC engine with QR code pairing, PBKDF2 key derivation, emoji verification, CRDT-style conflict resolution (field-level merge), pako compression, and a full sync state machine with progress tracking.',
+        type: 'success',
+      },
+      {
+        title: 'Recovery-First Design',
+        value: 'No punishment mechanics',
+        description: 'Rest mode triggers guided breathing, stretch animations, micro-recovery cards, and One Thing Mode. Streak freezes instead of resets. Recovery XP bonuses for coming back. AI in Rest mode never suggests adding more work.',
+        type: 'critical',
+      },
+    ],
+
+    charts: [
+      {
+        type: 'horizontal-bar' as const,
+        title: 'Source Scale by Module',
+        data: [
+          { label: 'Web App', value: 557, color: '#FFB088' },
+          { label: 'Packages', value: 124, color: '#A0AEC0' },
+          { label: 'Server Actions', value: 67, color: '#9B8EC4' },
+          { label: 'Custom Hooks', value: 34, color: '#22c55e' },
+          { label: 'Hub Widgets', value: 20, color: '#3b82f6' },
+          { label: 'API Routes', value: 12, color: '#f59e0b' },
+        ],
+        valueFormat: 'number' as const,
+        xLabel: 'Source files',
+        insight: '699 total source files across a TurboRepo monorepo with 4 apps (web, mobile, desktop, agent) and 4 packages (db, local-db, phenotyping, ui).',
+      },
+      {
+        type: 'horizontal-bar' as const,
+        title: 'AI Feature Coverage',
+        data: [
+          { label: 'Day Planner', value: 23, color: '#FFB088' },
+          { label: 'Cortex Chat', value: 15, color: '#A0AEC0' },
+          { label: 'Weekly Digest', value: 13, color: '#9B8EC4' },
+          { label: 'Burnout Scorer', value: 18, color: '#ef4444' },
+          { label: 'Goal Synthesis', value: 8, color: '#22c55e' },
+          { label: 'Task Decompose', value: 8, color: '#3b82f6' },
+        ],
+        valueFormat: 'number' as const,
+        xLabel: 'Server action size (KB)',
+        insight: 'AI Day Planner (23 KB) is the most complex — it receives chronotype profile, peak/valley windows, protected life-blocks, task energy types, and mode-adaptive constraints. Gemini response validated against Zod schema.',
+      },
+    ],
+
+    techHighlights: [
+      'TurboRepo monorepo: Next.js 14 (App Router) + Capacitor (mobile) + Electron (desktop) + AI Agent — sharing Prisma schema, UI components, and phenotyping logic across platforms',
+      '6,057-line CSS design system with clay extrusion shadows (5 depth levels), glassmorphism (20px backdrop blur), premium tile patterns (double border frames with radial gradients), and 7-step type scale',
+      'Circadian-aware AI Day Planner: Gemini receives chronotype profile, peak/valley energy windows, protected life-blocks, task energy types (draining/neutral/energizing), break intervals, and mode-adaptive time caps',
+      'Passive behavioral phenotyping: useNeuralLink hook tracks mouse velocity + click rate patterns via a dedicated packages/phenotyping/ module — NeuroScore inference without explicit user input',
+      'AES-256-GCM client-side encryption via Web Crypto API with PBKDF2 key derivation (100K iterations) for sensitive localStorage keys + separate server-side encryption layer',
+    ],
+    architecture: 'graph TB\n  subgraph Monorepo\n    A[Next.js 14 Web App] --> B[Prisma + Supabase PostgreSQL]\n    A --> C[Gemini AI Layer]\n    A --> D[Clerk Auth]\n    A --> E[Stripe Payments]\n    F[Capacitor Mobile] --> A\n    G[Electron Desktop] --> A\n    H[AI Agent Service] --> C\n  end\n  subgraph Packages\n    I[packages/db] --> B\n    J[packages/local-db WatermelonDB] --> F\n    K[packages/phenotyping] --> A\n    L[packages/ui] --> A\n  end\n  subgraph Client\n    M[Zustand Stores] --> A\n    N[React Context x4] --> A\n    O[LocalForage Cache] --> A\n    P[WebRTC P2P Sync] --> O\n  end',
+    pipelineSteps: [
+      { label: 'Cognitive Sensing', detail: 'Vibe Check modal captures explicit energy state. useNeuralLink passively monitors mouse velocity + click rate. NeuroScore (0-100) composite drives theme suggestions with 5-point hysteresis buffer to prevent flicker.' },
+      { label: 'Adaptive UI', detail: 'Three themes swap 380+ CSS variables — typography, shadows, animations, density, touch targets. Focus (JetBrains Mono, 150ms), Calm (Crimson Pro, 350ms, WebGL sunset gradient), Rest (Geist, 450ms, 48px targets, pillow radii).' },
+      { label: 'Task Intelligence', detail: 'NLP quick-add via chrono-node, RFC 5545 recurrence, difficulty/energy zone system, AI decomposition into subtasks, 5 task views (List, Day, Week, Calendar, Kanban) with drag-and-drop.' },
+      { label: 'Burnout Prevention', detail: '8-signal weighted algorithm (weights sum to 11.0) with personal baselines, linear regression slope for NeuroScore trend. 5 false-positive guards. Auto-triggers Rest mode with recovery overlay at sustained energy < 15.' },
+      { label: 'AI Orchestration', detail: '12 Gemini-powered features with Zod-validated responses, rate limiting per user per feature, cost tracking via AIUsageLog table, Cortex web worker for offloaded processing, and theme-adaptive AI personality.' },
+      { label: 'Cross-Platform Sync', detail: 'Primary: Supabase via Prisma server actions. Offline: LocalForage client cache + WatermelonDB mobile. P2P: WebRTC data channels with QR pairing, E2E encryption, CRDT conflict resolution, compressed payloads.' },
+    ],
+    theme: {
+      accent: '#FFB088',
+      accentAlt: '#A0AEC0',
+      variant: 'showcase',
+    },
+  },
 }
+
