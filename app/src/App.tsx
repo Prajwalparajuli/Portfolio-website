@@ -10,20 +10,13 @@ import { AuthProvider } from './components/auth/AuthProvider'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { getAdminPath } from './lib/adminConfig'
 import {
-  AdminActivityRoute,
-  AdminAnswerBankRoute,
-  AdminApplicationsRoute,
-  AdminContactsRoute,
-  AdminDashboardRoute,
-  AdminInboxRoute,
-  AdminJobsRoute,
   AdminProjectFormRoute,
   AdminProjectsRoute,
+  AdminQuickTailorRoute,
   AdminResumeEditorRoute,
   AdminResumePrintViewRoute,
   AdminSettingsRoute,
   AdminSkillsRoute,
-  AdminWatchlistsRoute,
 } from './app/admin/routes'
 import './App.css'
 
@@ -43,24 +36,17 @@ function App() {
             <Route path="packet/:token" element={<RecruiterPacketPage />} />
           </Route>
 
-          {/* Admin Routes - path from VITE_ADMIN_PATH (default: /admin) */}
+          {/* Admin Routes */}
           <Route path={`${adminBase}/resume/print`} element={<AdminResumePrintViewRoute />} />
           <Route path={adminBase} element={<AdminLayout />}>
-            <Route index element={<Navigate to="jobs" replace />} />
-            <Route path="today" element={<AdminDashboardRoute />} />
+            <Route index element={<Navigate to="resume" replace />} />
+            <Route path="resume" element={<AdminResumeEditorRoute />} />
+            <Route path="tailor" element={<AdminQuickTailorRoute />} />
             <Route path="projects" element={<AdminProjectsRoute />} />
             <Route path="projects/new" element={<AdminProjectFormRoute />} />
             <Route path="projects/:id/edit" element={<AdminProjectFormRoute />} />
             <Route path="skills" element={<AdminSkillsRoute />} />
             <Route path="settings" element={<AdminSettingsRoute />} />
-            <Route path="activity" element={<AdminActivityRoute />} />
-            <Route path="jobs" element={<AdminJobsRoute />} />
-            <Route path="watchlists" element={<AdminWatchlistsRoute />} />
-            <Route path="contacts" element={<AdminContactsRoute />} />
-            <Route path="applications" element={<AdminApplicationsRoute />} />
-            <Route path="answers" element={<AdminAnswerBankRoute />} />
-            <Route path="inbox" element={<AdminInboxRoute />} />
-            <Route path="resume" element={<AdminResumeEditorRoute />} />
           </Route>
         </Routes>
       </AuthProvider>

@@ -285,30 +285,32 @@ async function handleGenerateSummary(payload: ResumeAiRequest['payload'] & {
   const degree = firstEducation
     ? `${firstEducation.title ?? ''} at ${firstEducation.issuer ?? ''} (${firstEducation.date ?? ''})`.trim()
     : ''
-  const topSkills = asStringArray(payload.skills, 'skills').slice(0, 8).join(', ')
+  const topSkills = asStringArray(payload.skills, 'skills').slice(0, 15).join(', ')
   const projects = Array.isArray(payload.projects) ? payload.projects : []
-  const projectTitles = projects.slice(0, 4).map((project) => project.title).join(', ')
+  const projectTitles = projects.slice(0, 5).map((project) => project.title).join(', ')
   const experienceItems = asEntryArray(payload.experienceItems)
   const sampleBullets = experienceItems
-    .slice(0, 3)
-    .flatMap((item) => item.bullets.slice(0, 1))
+    .slice(0, 4)
+    .flatMap((item) => item.bullets.slice(0, 2))
     .filter(Boolean)
     .join(' | ')
 
-  const prompt = `You are an expert resume writer for data science and AI or ML roles.
+  const prompt = `You are a senior technical resume writer with 20 years of experience placing candidates at top-tier companies (FAANG, unicorn startups, Fortune 500 R&D labs). You have reviewed over 50,000 resumes and know exactly what makes a hiring manager stop scrolling.
 
-Write a professional resume summary of exactly 3-4 sentences (70-100 words total). It must:
-1. Sentence 1: Lead with degree or title + institution + specialties
-2. Sentence 2: Highlight core technical skills naturally
-3. Sentence 3: Include a concrete achievement or qualitative impact
-4. Sentence 4: End with the value or impact the candidate brings to employers
+Write a professional resume summary. This is the FIRST thing a recruiter reads — it has 6 seconds to make them keep reading.
 
-Rules:
-- Write in third person. Do not use "I" or "My"
-- NEVER use placeholders like "[X]%" or "[metric]". If a metric is unknown, describe the impact qualitatively.
-- Use ATS keywords naturally
-- Sound human and confident, not generic
-- Do not use phrases like "results-driven", "passionate team player", or "hard worker"
+STRUCTURE (exactly 3-4 sentences, 60-90 words total):
+1. POSITIONING LINE: "[Degree/Title] specializing in [2-3 specific domains from skills list]" — NOT generic. Use the candidate's actual specialization.
+2. TECHNICAL DEPTH: Name 4-6 specific technologies/frameworks from the skills list, woven naturally into a sentence about what the candidate builds. Show they're a practitioner, not a student.
+3. PROOF OF IMPACT: Reference a specific type of project or achievement from the sample work. Use concrete language — "developed production ML pipelines" not "worked on projects."
+4. VALUE PROPOSITION: What does the candidate bring to an employer? Frame it as solving their problem.
+
+CRITICAL QUALITY RULES:
+- Write in third person. No "I" or "My."
+- NEVER use these red-flag phrases that scream "AI wrote this": "results-driven", "passionate", "detail-oriented", "team player", "strong communicator", "self-motivated", "proven track record."
+- NEVER use placeholder brackets like [X]% or [metric]. Every word must be final.
+- ATS parsers read this field. Front-load the most important keywords (the job title and core skills).
+- Be specific. "Built classification models using scikit-learn and TensorFlow on healthcare datasets" beats "experienced in machine learning" every time.
 
 Candidate info:
 Education: ${degree || 'Not specified'}
@@ -317,9 +319,9 @@ Skills: ${topSkills || 'Not specified'}
 Projects: ${projectTitles || 'Not specified'}
 Sample work context: ${sampleBullets || 'Not available'}
 
-IMPORTANT: Output ONLY the summary paragraph. No labels. No headings.`
+IMPORTANT: Output ONLY the summary paragraph. No labels. No headings. Start writing immediately.`
 
-  const text = await callGemini('generate_summary', prompt, 600)
+  const text = await callGemini('generate_summary', prompt, 800)
   return { text: text.trim() }
 }
 
@@ -383,7 +385,7 @@ async function handleTailorResume(payload: {
   skills?: string[]
   orphanedSkills?: string[]
 }) {
-  const jd = asString(payload.jd, 'jd').slice(0, 2000)
+  const jd = asString(payload.jd, 'jd').slice(0, 4000)
   const currentSummary = typeof payload.currentSummary === 'string' ? payload.currentSummary.trim() : ''
   const entries = asEntryArray(payload.entries)
   const skills = asStringArray(payload.skills, 'skills')
@@ -397,22 +399,47 @@ async function handleTailorResume(payload: {
     })
     .join('\n\n')
 
-  const prompt = `You are an expert resume writer and ATS optimization specialist.
+  const prompt = `You are a senior technical resume strategist who has spent 20 years in technical recruiting at companies like Google, Amazon, and top AI startups. You have personally reviewed over 50,000 resumes and know exactly how ATS systems parse, score, and rank candidates. You also know what makes a human hiring manager's eyes light up vs. glaze over.
 
-Tailor the resume below to the job description provided. Your goal is to maximize keyword alignment and relevance without fabricating experience.
+Your task: Rewrite this resume's summary and bullet points to maximize this candidate's chances for the specific job description below.
 
-RULES:
-1. Keep all facts truthful. Use the same projects or roles and only rephrase bullets to emphasize relevant skills.
-2. Rewrite the summary to open with keywords from the JD naturally.
-3. For each project entry, rewrite bullets to emphasize skills mentioned in the JD.
-4. Use exact phrases from the JD where they honestly apply.
-5. DO NOT use "[X]" or "[X]%" placeholders. Focus on relevant qualitative skills and technical alignment.
-6. Each bullet must be 60-175 characters and start with a past-tense action verb.
-7. DYNAMIC BULLET ALLOCATION: Rank the provided entries by their relevance to the JD.
-   - For highly relevant entries, expand them to 4-6 detailed bullets to maximize keyword matches.
-   - For somewhat relevant entries, use 3-4 bullets.
-   - For irrelevant or older entries, condense them to 1-2 short bullets just to show continuous experience.
-${orphanedSkills.length > 0 ? `8. INCORPORATE MISSING SKILLS: The candidate has these skills but hasn't mentioned them in bullets. Find a natural way to inject these into the bullets if they align with the JD: ${orphanedSkills.join(', ')}` : ''}
+═══ YOUR EXPERT METHODOLOGY ═══
+
+1. KEYWORD MIRRORING (most critical for ATS):
+   - Extract EVERY hard skill, technology, framework, methodology, and domain keyword from the JD.
+   - Mirror these keywords EXACTLY as written in the JD (e.g., if JD says "machine learning pipelines" — use that exact phrase, not "ML systems").
+   - Front-load the most important keywords in the first bullet of each entry.
+
+2. BULLET FORMULA (CAR: Challenge → Action → Result):
+   - Start with a strong PAST-TENSE action verb. Never "Utilized", "Leveraged", "Responsible for", "Helped with".
+   - GOOD verbs: Engineered, Architected, Optimized, Developed, Built, Deployed, Designed, Implemented, Automated, Analyzed, Reduced, Accelerated, Processed, Trained, Evaluated, Integrated.
+   - After the verb: [WHAT you built/did] + [HOW using specific tools/tech] + [WHY it mattered / scale / outcome].
+   - Include technical specificity: model names (XGBoost, BERT, ResNet), dataset sizes, performance metrics if available.
+   - If no hard number exists, describe TECHNICAL COMPLEXITY: "across 6 heterogeneous feature sets" or "handling class imbalance with SMOTE and stratified k-fold."
+   - NEVER use "[X]" or "[X]%" placeholders. Every word must be final and real.
+
+3. DYNAMIC BULLET ALLOCATION (this is what separates good from great):
+   - Score each entry 1-10 for relevance to this specific JD.
+   - 8-10 relevance: 4-6 detailed, keyword-rich bullets. This is your star content.
+   - 5-7 relevance: 2-3 bullets, emphasizing transferable skills from the JD.
+   - 1-4 relevance: 1-2 compact bullets. Don't waste resume space on irrelevant work.
+
+4. SUMMARY REWRITE:
+   - Open with the EXACT job title from the JD (or close synonym) + specialization.
+   - Weave in 4-6 specific technologies from the JD naturally.
+   - End with a value statement that matches the employer's needs.
+   - 3-4 sentences, 60-90 words. No fluff.
+
+5. ATS SURVIVAL RULES:
+   - No tables, columns, or special characters.
+   - Spell out acronyms on first use if the JD does: "Natural Language Processing (NLP)".
+   - Match the JD's spelling: "TensorFlow" not "Tensorflow", "scikit-learn" not "sklearn".
+${orphanedSkills.length > 0 ? `
+6. ORPHANED SKILLS INJECTION:
+   The candidate has these verified skills that aren't yet mentioned in any bullet. Naturally weave relevant ones into bullets where they honestly apply:
+   ${orphanedSkills.join(', ')}` : ''}
+
+═══ INPUTS ═══
 
 JOB DESCRIPTION:
 ${jd}
@@ -423,17 +450,21 @@ ${currentSummary || '(none yet)'}
 CURRENT EXPERIENCE ENTRIES:
 ${entriesSnapshot}
 
-SKILLS AVAILABLE: ${skills.join(', ')}
+ALL CANDIDATE SKILLS: ${skills.join(', ')}
 
-Output as JSON exactly in this format:
+═══ OUTPUT FORMAT ═══
+
+Return JSON exactly like this:
 {
-  "summary": "rewritten summary",
+  "summary": "the rewritten summary paragraph",
   "entries": [
-    { "index": 0, "bullets": ["bullet1", "bullet2"] }
+    { "index": 0, "bullets": ["bullet1", "bullet2", "bullet3", "bullet4"] }
   ]
-}`
+}
 
-  const raw = await callGemini('tailor_resume', prompt, 3000)
+Remember: every bullet must read like it was written by someone who deeply understands both the candidate's work AND the hiring manager's needs. Not generic AI output — expert career strategy.`
+
+  const raw = await callGemini('tailor_resume', prompt, 4000)
   const jsonText = extractJsonObject(raw)
   const parsed = JSON.parse(jsonText) as {
     summary?: string
@@ -444,7 +475,7 @@ Output as JSON exactly in this format:
 
   for (const entry of parsed.entries ?? []) {
     if (typeof entry.index !== 'number' || !Array.isArray(entry.bullets)) continue
-    bullets[entry.index] = entry.bullets.filter((bullet) => typeof bullet === 'string' && bullet.trim().length > 5).slice(0, 7)
+    bullets[entry.index] = entry.bullets.filter((bullet) => typeof bullet === 'string' && bullet.trim().length > 10).slice(0, 7)
   }
 
   return {
@@ -503,20 +534,34 @@ async function handleGenerateCoverLetter(payload: {
         .join('\n\n')
     : ''
 
-  const prompt = `You are an expert technical recruiting writer.
+  const prompt = `You are a senior career strategist who has coached hundreds of candidates into roles at top tech companies. You write cover letters that hiring managers actually read — because they're specific, concise, and make the case that this candidate solves a real problem.
 
-Write a concise, specific cover letter for the candidate below. The goal is a high-quality draft for a real job application.
+Write a cover letter following this PROVEN STRUCTURE:
 
-RULES:
-- 3 short paragraphs plus a sign-off
-- 220-320 words total
-- Professional, direct, and specific
-- Use concrete overlap from the job description and the candidate resume context
-- Do not invent employers, metrics, or years of experience
-- Do not mention being an AI or that this is a draft
-- Do not include postal addresses or the candidate's contact block
-- Start with "Dear Hiring Team,"
-- End with "Sincerely," on one line and the candidate name on the next line
+PARAGRAPH 1 — THE HOOK (3-4 sentences):
+- Open with "Dear Hiring Team," (never "To Whom It May Concern")
+- State the EXACT role title and company name.
+- Immediately connect: what specific thing about this company/role excites the candidate? Reference something concrete from the JD (a technology they use, a problem they're solving, a team they're building).
+- End with a positioning statement: "As a [specific title] with [specific experience], I bring [specific value]."
+
+PARAGRAPH 2 — THE PROOF (4-5 sentences):
+- Pick 2-3 specific projects/experiences from the candidate's resume that DIRECTLY map to the JD's requirements.
+- Use the SAME keywords the JD uses.
+- Include at least one technical detail that shows depth ("built a classification pipeline using XGBoost with stratified cross-validation" not "worked on ML projects").
+- Show you understand the employer's problem and how the candidate's experience solves it.
+
+PARAGRAPH 3 — THE CLOSE (2-3 sentences):
+- Reiterate enthusiasm for the specific role (not generic "any position").
+- Mention eagerness to discuss how the candidate's skills align.
+- End with "Sincerely," and the candidate's name.
+
+CRITICAL RULES:
+- 220-320 words total. Hiring managers stop reading after 1 page.
+- NEVER invent experience, metrics, or employers.
+- NEVER say "I am writing to apply" or "I am excited to apply" — those are the two most generic openings in existence.
+- NEVER mention being an AI or that this is a draft.
+- No postal addresses or contact blocks.
+- Be specific enough that this letter could ONLY be about this candidate and this job.
 
 JOB:
 Title: ${jobTitle || 'Not specified'}
