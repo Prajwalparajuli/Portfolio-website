@@ -1018,14 +1018,24 @@ export function AdminApplications() {
                         </Button>
                       </Link>
                     </div>
-                    {/* Inline tailored resume preview */}
+                    {/* Inline tailored resume preview — show full content so user can audit */}
                     {selectedAssignedVariant && selectedApplication.resume_variant_id && (
-                      <details className="mt-2 rounded-lg border border-white/10 bg-black/20">
+                      <details open className="mt-2 rounded-lg border border-white/10 bg-black/20" id="section-resume-preview">
                         <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2 text-xs text-muted-foreground hover:text-foreground">
-                          <span>Preview tailored resume: {selectedAssignedVariant.name}</span>
-                          <Badge variant="outline" className="text-[10px]">{selectedAssignedVariant.variantType}</Badge>
+                          <span className="font-medium">Tailored resume: {selectedAssignedVariant.name}</span>
+                          <Badge
+                            variant="outline"
+                            className={cn(
+                              'text-[10px]',
+                              selectedAssignedVariant.variantType === 'tailored'
+                                ? 'border-emerald-500/30 text-emerald-400'
+                                : 'border-white/20'
+                            )}
+                          >
+                            {selectedAssignedVariant.variantType === 'tailored' ? '✓ Tailored' : selectedAssignedVariant.variantType}
+                          </Badge>
                         </summary>
-                        <div className="space-y-3 border-t border-white/10 px-3 py-3">
+                        <div className="space-y-3 border-t border-white/10 px-3 py-3 max-h-[60vh] overflow-y-auto">
                           {(() => {
                             const summarySection = selectedAssignedVariant.content?.sections?.find(
                               (s: { type: string }) => s.type === 'summary'
@@ -1033,46 +1043,49 @@ export function AdminApplications() {
                             const expSection = selectedAssignedVariant.content?.sections?.find(
                               (s: { type: string }) => s.type === 'experience'
                             ) as { items?: Array<{ kind: string; titleOverride?: string; role?: string; bullets: string[] }> } | undefined
+                            const skillsSection = selectedAssignedVariant.content?.sections?.find(
+                              (s: { type: string }) => s.type === 'skills'
+                            ) as { includedIds?: string[] | 'all' } | undefined
 
                             return (
                               <>
                                 {summarySection?.text && (
                                   <div>
-                                    <p className="mb-1 text-[10px] uppercase tracking-wider text-muted-foreground">Summary</p>
+                                    <p className="mb-1 text-[10px] uppercase tracking-wider text-emerald-400/80">Summary</p>
                                     <p className="text-xs leading-5 text-foreground/90">{summarySection.text}</p>
                                   </div>
                                 )}
                                 {expSection?.items && expSection.items.length > 0 && (
                                   <div>
-                                    <p className="mb-1.5 text-[10px] uppercase tracking-wider text-muted-foreground">
+                                    <p className="mb-1.5 text-[10px] uppercase tracking-wider text-accent/80">
                                       Experience ({expSection.items.length} items)
                                     </p>
                                     <div className="space-y-2">
-                                      {expSection.items.slice(0, 3).map((item, idx) => (
+                                      {expSection.items.map((item, idx) => (
                                         <div key={idx} className="rounded-md border border-white/5 bg-black/20 px-2.5 py-2">
                                           <p className="text-xs font-medium text-foreground">
                                             {item.kind === 'project' ? item.titleOverride : item.role}
                                           </p>
                                           <ul className="mt-1 space-y-0.5">
-                                            {item.bullets.slice(0, 2).map((bullet, bIdx) => (
+                                            {item.bullets.map((bullet, bIdx) => (
                                               <li key={bIdx} className="text-[11px] text-muted-foreground leading-4">
-                                                • {bullet.length > 120 ? `${bullet.slice(0, 120)}...` : bullet}
+                                                • {bullet}
                                               </li>
                                             ))}
-                                            {item.bullets.length > 2 && (
-                                              <li className="text-[10px] text-muted-foreground/60">
-                                                +{item.bullets.length - 2} more bullets
-                                              </li>
-                                            )}
                                           </ul>
                                         </div>
                                       ))}
-                                      {expSection.items.length > 3 && (
-                                        <p className="text-[10px] text-muted-foreground/60">
-                                          +{expSection.items.length - 3} more experience items
-                                        </p>
-                                      )}
                                     </div>
+                                  </div>
+                                )}
+                                {skillsSection && (
+                                  <div>
+                                    <p className="mb-1 text-[10px] uppercase tracking-wider text-muted-foreground">Skills</p>
+                                    <p className="text-xs text-muted-foreground">
+                                      {skillsSection.includedIds === 'all'
+                                        ? `All ${skills.length} skills included`
+                                        : `${Array.isArray(skillsSection.includedIds) ? skillsSection.includedIds.length : 0} skills selected`}
+                                    </p>
                                   </div>
                                 )}
                                 <Link to={getAdminPath(`resume?application=${selectedApplication.id}`)}>
@@ -1173,7 +1186,7 @@ export function AdminApplications() {
                     </CardContent>
                   </Card>
 
-                  <Card className="glass border-white/10">
+                  <Card className="glass border-white/10" id="section-cover-letter">
                     <CardContent className="space-y-3 p-4">
                       <div className="flex items-center gap-2">
                         <FileText className="h-4 w-4 text-accent" />
@@ -1919,15 +1932,30 @@ async function tailorResumeContentToJob(
   const experienceSection = content.sections.find(
     (section): section is ResumeExperienceSection => section.type === 'experience'
   )
+  const skillsSection = content.sections.find(
+    (section) => section.type === 'skills'
+  ) as import('@/types/resume').ResumeSkillsSection | undefined
 
   if (!experienceSection || experienceSection.items.length === 0) return content
+
+  // Compute orphaned skills — skills in the resume's skills section but not mentioned in any bullet
+  const includedSkillObjs = skillsSection
+    ? skillsSection.includedIds === 'all'
+      ? skills
+      : skills.filter((sk) => Array.isArray(skillsSection.includedIds) && skillsSection.includedIds.includes(sk.id))
+    : skills
+  const allBulletsText = experienceSection.items.flatMap((i) => i.bullets).join(' ').toLowerCase()
+  const orphanedSkillNames = includedSkillObjs
+    .filter((sk) => !allBulletsText.includes(sk.name.toLowerCase()))
+    .map((sk) => sk.name)
 
   const { summary, bullets } = await tailorResumeToJob(
     jobDescription,
     summarySection?.text ?? '',
     experienceSection.items,
     projects,
-    skills
+    skills,
+    orphanedSkillNames
   )
 
   return {
@@ -1981,13 +2009,13 @@ function buildPacketChecklist({
         assignedVariant && application.resume_variant_id
           ? assignedVariant.name
           : 'Attach a role-specific resume.',
-      section: null,
+      section: 'section-resume-preview',
     },
     {
       label: 'Cover letter',
       ready: Boolean(coverLetter.trim()),
       detail: coverLetter.trim() ? 'Drafted and ready.' : 'Draft the cover letter.',
-      section: null,
+      section: 'section-cover-letter',
     },
     {
       label: 'Answer bank',

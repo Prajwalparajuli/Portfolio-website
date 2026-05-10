@@ -330,9 +330,12 @@ RULES:
 2. Rewrite the summary to open with keywords from the JD (naturally)
 3. For each project entry, rewrite bullets to emphasize skills mentioned in the JD
 4. Use exact phrases from the JD where they honestly apply (e.g. "machine learning pipelines", "cross-functional teams")
-5. Add "[X]" metric placeholders where numbers would strengthen a bullet
+5. DO NOT use "[X]" or "[X]%" placeholders. Focus on relevant qualitative skills and technical alignment.
 6. Each bullet: 60–175 chars, past-tense action verb first
-7. Keep the same NUMBER of bullets per entry
+7. DYNAMIC BULLET ALLOCATION: Rank entries by relevance to the JD.
+   - Highly relevant: 4–6 detailed bullets to maximize keyword matches
+   - Somewhat relevant: 3–4 bullets
+   - Irrelevant/older: 1–2 short bullets just to show continuous experience
 
 JOB DESCRIPTION:
 ${jd.slice(0, 2000)}
@@ -343,7 +346,7 @@ ${currentSummary || '(none yet)'}
 CURRENT EXPERIENCE ENTRIES:
 ${entriesSnapshot}
 
-SKILLS AVAILABLE: ${skills.slice(0, 12).map(s => s.name).join(', ')}
+SKILLS AVAILABLE: ${skills.map(s => s.name).join(', ')}
 
 Output as JSON exactly in this format (no markdown code block):
 {
@@ -364,7 +367,7 @@ Output as JSON exactly in this format (no markdown code block):
   const bullets: Record<number, string[]> = {}
   for (const entry of (parsed.entries ?? [])) {
     if (typeof entry.index === 'number' && Array.isArray(entry.bullets)) {
-      bullets[entry.index] = entry.bullets.filter((b: string) => b.length > 5).slice(0, 5)
+      bullets[entry.index] = entry.bullets.filter((b: string) => b.length > 5).slice(0, 7)
     }
   }
 

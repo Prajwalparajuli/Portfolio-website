@@ -423,7 +423,7 @@ ${currentSummary || '(none yet)'}
 CURRENT EXPERIENCE ENTRIES:
 ${entriesSnapshot}
 
-SKILLS AVAILABLE: ${skills.slice(0, 12).join(', ')}
+SKILLS AVAILABLE: ${skills.join(', ')}
 
 Output as JSON exactly in this format:
 {
@@ -487,7 +487,7 @@ async function handleGenerateCoverLetter(payload: {
 
   const candidateName = typeof candidate.name === 'string' ? candidate.name.trim() : ''
   const summary = typeof candidate.summary === 'string' ? candidate.summary.trim() : ''
-  const skills = asStringArray(candidate.skills, 'candidate.skills').slice(0, 12).join(', ')
+  const skills = asStringArray(candidate.skills, 'candidate.skills').slice(0, 20).join(', ')
   const experience = Array.isArray(candidate.experience)
     ? candidate.experience
         .filter((entry): entry is { title?: string; bullets?: string[] } => Boolean(entry) && typeof entry === 'object')
