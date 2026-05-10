@@ -5,9 +5,9 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Loader2, Upload, FileText, Github, Linkedin, Twitter, Mail, Plus, Trash2, GraduationCap, Award, PenLine, User, Camera } from 'lucide-react'
+import { Loader2, FileText, Github, Linkedin, Twitter, Mail, Plus, Trash2, GraduationCap, Award, PenLine, User, Camera } from 'lucide-react'
 import { PortfolioSettings, EducationEntry } from '@/types'
-import { getSettings, updateSetting, uploadResume, syncCandidateProfileFromSettings, supabase } from '@/lib/supabase'
+import { getSettings, updateSetting, syncCandidateProfileFromSettings, supabase } from '@/lib/supabase'
 import { cn } from '@/lib/utils'
 import { Link } from 'react-router-dom'
 import { getAdminPath } from '@/lib/adminConfig'
@@ -15,7 +15,6 @@ import { getAdminPath } from '@/lib/adminConfig'
 export function AdminSettings() {
   const [settings, setSettings] = useState<PortfolioSettings | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [isUploading, setIsUploading] = useState(false)
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false)
   const [saveMessage, setSaveMessage] = useState<string | null>(null)
   const [photoUrl, setPhotoUrl] = useState<string>('')
@@ -79,31 +78,7 @@ export function AdminSettings() {
     await persistSettings(settings, true)
   }
 
-  const handleResumeUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
 
-    if (file.type !== 'application/pdf') {
-      alert('Please upload a PDF file')
-      return
-    }
-
-    setIsUploading(true)
-    
-    try {
-      const url = await uploadResume(file)
-      if (url && settings) {
-        setSettings({ ...settings, resume_url: url })
-        setSaveMessage('Resume uploaded successfully!')
-        setTimeout(() => setSaveMessage(null), 3000)
-      }
-    } catch (error) {
-      console.error('Error uploading resume:', error)
-      setSaveMessage('Error uploading resume. Please try again.')
-    } finally {
-      setIsUploading(false)
-    }
-  }, [settings])
 
   const handlePhotoUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -401,60 +376,16 @@ export function AdminSettings() {
                   Build an ATS-friendly resume from your projects, skills, and education — with a live preview and one-click PDF export.
                 </p>
               </CardHeader>
-              <CardContent>
+              <CardContent className="space-y-3">
                 <Link to={getAdminPath('resume')}>
                   <Button className="gap-2">
                     <PenLine className="h-4 w-4" />
                     Open Resume Builder
                   </Button>
                 </Link>
-              </CardContent>
-            </Card>
-
-            <Card className="glass">
-              <CardHeader>
-                <CardTitle className="text-lg">Resume</CardTitle>
-                <p className="text-sm text-muted-foreground">
-                  Upload a PDF directly (overrides the builder URL shown on the public site).
+                <p className="text-xs text-muted-foreground">
+                  Your public <code className="text-foreground/70">/resume</code> page renders directly from the Resume Builder. No separate PDF upload needed.
                 </p>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label>Upload Resume (PDF)</Label>
-                  <div className="flex items-center gap-4">
-                    {settings.resume_url && (
-                      <a
-                        href={settings.resume_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 transition-colors"
-                      >
-                        <FileText className="h-4 w-4" />
-                        View Current Resume
-                      </a>
-                    )}
-                    <label className={cn(
-                      "flex items-center gap-2 px-4 py-2 rounded-lg border-2 border-dashed cursor-pointer transition-colors",
-                      "border-white/20 hover:border-white/40"
-                    )}>
-                      {isUploading ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <>
-                          <Upload className="h-4 w-4" />
-                          Upload New Resume
-                        </>
-                      )}
-                      <input
-                        type="file"
-                        className="hidden"
-                        accept=".pdf"
-                        onChange={handleResumeUpload}
-                        disabled={isUploading}
-                      />
-                    </label>
-                  </div>
-                </div>
               </CardContent>
             </Card>
           </TabsContent>
