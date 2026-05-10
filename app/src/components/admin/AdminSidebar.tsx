@@ -1,6 +1,7 @@
 import { useAuth } from '@/components/auth/AuthProvider'
 import { Button } from '@/components/ui/button'
 import {
+  ClipboardList,
   ExternalLink,
   FileText,
   FolderKanban,
@@ -22,6 +23,7 @@ type NavItem = {
 const navItems: NavItem[] = [
   { href: getAdminPath('resume'), label: 'Resume', icon: FileText },
   { href: getAdminPath('tailor'), label: 'Quick Tailor', icon: Scissors },
+  { href: getAdminPath('tracker'), label: 'Tracker', icon: ClipboardList },
   { href: getAdminPath('projects'), label: 'Projects', icon: FolderKanban },
   { href: getAdminPath('skills'), label: 'Skills', icon: Tags },
   { href: getAdminPath('settings'), label: 'Settings', icon: Settings },

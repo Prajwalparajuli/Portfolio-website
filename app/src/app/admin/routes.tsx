@@ -21,6 +21,9 @@ const loadAdminResumePrintView = () =>
 const loadAdminQuickTailor = () =>
   import('./QuickTailor').then((module) => ({ default: module.AdminQuickTailor }))
 
+const loadAdminTracker = () =>
+  import('./Tracker').then((module) => ({ default: module.AdminTracker }))
+
 export const AdminProjectsRoute = lazy(loadAdminProjects)
 export const AdminProjectFormRoute = lazy(loadAdminProjectForm)
 export const AdminSkillsRoute = lazy(loadAdminSkills)
@@ -28,6 +31,7 @@ export const AdminSettingsRoute = lazy(loadAdminSettings)
 export const AdminResumeEditorRoute = lazy(loadAdminResumeEditor)
 export const AdminResumePrintViewRoute = lazy(loadAdminResumePrintView)
 export const AdminQuickTailorRoute = lazy(loadAdminQuickTailor)
+export const AdminTrackerRoute = lazy(loadAdminTracker)
 
 export function preloadAdminRoutes() {
   return Promise.allSettled([
@@ -38,5 +42,6 @@ export function preloadAdminRoutes() {
     loadAdminResumeEditor(),
     loadAdminResumePrintView(),
     loadAdminQuickTailor(),
+    loadAdminTracker(),
   ])
 }

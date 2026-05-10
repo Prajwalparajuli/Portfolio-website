@@ -17,6 +17,7 @@ import {
   AdminResumePrintViewRoute,
   AdminSettingsRoute,
   AdminSkillsRoute,
+  AdminTrackerRoute,
 } from './app/admin/routes'
 import './App.css'
 
@@ -42,6 +43,7 @@ function App() {
             <Route index element={<Navigate to="resume" replace />} />
             <Route path="resume" element={<AdminResumeEditorRoute />} />
             <Route path="tailor" element={<AdminQuickTailorRoute />} />
+            <Route path="tracker" element={<AdminTrackerRoute />} />
             <Route path="projects" element={<AdminProjectsRoute />} />
             <Route path="projects/new" element={<AdminProjectFormRoute />} />
             <Route path="projects/:id/edit" element={<AdminProjectFormRoute />} />

@@ -49,8 +49,28 @@ function ScaledPreviewWrapper({ children }: { children: React.ReactNode }) {
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
+const LS_JD_KEY = 'quick-tailor-jd'
+const LS_HISTORY_KEY = 'quick-tailor-history'
+
+interface SavedTailor {
+  id: string
+  jdSnippet: string
+  coverLetter: string
+  atsScore: number | null
+  savedAt: string
+}
+
+function loadHistory(): SavedTailor[] {
+  try { return JSON.parse(localStorage.getItem(LS_HISTORY_KEY) || '[]') } catch { return [] }
+}
+
 function buildContactLine(s: PortfolioSettings): string {
-  return [s.location, s.contact_email, s.linkedin_url?.replace(/^https?:\/\//, ''), s.github_url?.replace(/^https?:\/\//, '')].filter(Boolean).join('  ')
+  const parts = [s.location, s.contact_email]
+  const host = typeof window !== 'undefined' ? window.location.hostname : ''
+  if (host && host !== 'localhost') parts.push(host)
+  if (s.linkedin_url) parts.push(s.linkedin_url.replace(/^https?:\/\//, ''))
+  if (s.github_url) parts.push(s.github_url.replace(/^https?:\/\//, ''))
+  return parts.filter(Boolean).join('  ')
 }
 
 function normalizeForSettings(content: ResumeContent | null | undefined, settings: PortfolioSettings): ResumeContent {
@@ -70,13 +90,14 @@ export function AdminQuickTailor() {
   const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
-  // Tailor state
-  const [jdText, setJdText] = useState('')
+  // Tailor state — restore JD from localStorage
+  const [jdText, setJdText] = useState(() => localStorage.getItem(LS_JD_KEY) || '')
   const [tailoring, setTailoring] = useState(false)
   const [tailoredContent, setTailoredContent] = useState<ResumeContent | null>(null)
   const [coverLetter, setCoverLetter] = useState('')
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const [history, setHistory] = useState<SavedTailor[]>(loadHistory)
 
   // ATS match
   const [atsScore, setAtsScore] = useState<number | null>(null)
@@ -85,6 +106,9 @@ export function AdminQuickTailor() {
   const [atsRedFlags, setAtsRedFlags] = useState<string[]>([])
   const [savingVariant, setSavingVariant] = useState(false)
   const [savedMsg, setSavedMsg] = useState<string | null>(null)
+
+  // Persist JD text to localStorage on change
+  useEffect(() => { localStorage.setItem(LS_JD_KEY, jdText) }, [jdText])
 
   // Load workspace once
   useEffect(() => {
@@ -189,6 +213,18 @@ export function AdminQuickTailor() {
         setAtsMissing(ats.value.missingKeywords)
         setAtsRedFlags(ats.value.redFlags)
       }
+
+      // Auto-save to history
+      const entry: SavedTailor = {
+        id: crypto.randomUUID(),
+        jdSnippet: jdText.slice(0, 100),
+        coverLetter: cl.status === 'fulfilled' ? cl.value : '',
+        atsScore: ats.status === 'fulfilled' ? ats.value.score : null,
+        savedAt: new Date().toISOString(),
+      }
+      const nextHistory = [entry, ...history].slice(0, 20)
+      setHistory(nextHistory)
+      localStorage.setItem(LS_HISTORY_KEY, JSON.stringify(nextHistory))
     } catch (e) {
       setErrorMsg(e instanceof Error ? e.message : 'Tailoring failed. Try again.')
     } finally {
@@ -517,6 +553,28 @@ export function AdminQuickTailor() {
             )}
           </div>
         </div>
+      )}
+
+      {/* History */}
+      {history.length > 0 && !tailoring && !tailoredContent && (
+        <Card className="glass border-white/10">
+          <CardContent className="p-4 space-y-2">
+            <h2 className="text-sm font-semibold text-foreground">Recent tailors</h2>
+            <div className="space-y-1.5">
+              {history.slice(0, 5).map(h => (
+                <div key={h.id} className="flex items-center justify-between rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs text-foreground truncate">{h.jdSnippet}...</p>
+                    <p className="text-[10px] text-muted-foreground">{new Date(h.savedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</p>
+                  </div>
+                  {h.atsScore != null && (
+                    <span className={cn('text-xs font-bold ml-3', h.atsScore >= 80 ? 'text-emerald-400' : h.atsScore >= 60 ? 'text-amber-400' : 'text-red-400')}>{h.atsScore}%</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
       )}
     </div>
   )

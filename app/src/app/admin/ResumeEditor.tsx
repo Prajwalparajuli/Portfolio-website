@@ -418,6 +418,9 @@ function buildContactLineFromSettings(s: PortfolioSettings): string {
   const parts: string[] = []
   if (s.location) parts.push(s.location)
   if (s.contact_email) parts.push(s.contact_email)
+  // Always include portfolio, LinkedIn, and GitHub
+  const portfolioHost = typeof window !== 'undefined' ? window.location.hostname : 'prajwalparajuli.com.np'
+  if (portfolioHost && portfolioHost !== 'localhost') parts.push(portfolioHost)
   if (s.linkedin_url) parts.push(s.linkedin_url.replace(/^https?:\/\//, ''))
   if (s.github_url) parts.push(s.github_url.replace(/^https?:\/\//, ''))
   return parts.join('  ')
