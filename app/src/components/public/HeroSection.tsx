@@ -85,7 +85,7 @@ export function HeroSection({ settings, projects = [] }: HeroSectionProps) {
             {photoUrl ? (
               <img
                 src={photoUrl}
-                alt="Prajwal Parajuli"
+                alt={settings.site_title || 'Profile photo'}
                 className="h-28 w-28 rounded-2xl border-2 border-white/10 object-cover shadow-2xl sm:h-32 sm:w-32"
               />
             ) : (
@@ -101,10 +101,10 @@ export function HeroSection({ settings, projects = [] }: HeroSectionProps) {
 
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-              Data Scientist & AI Engineer
+              {settings.site_description?.split('—')[0]?.trim() || 'Data Scientist & AI Engineer'}
             </p>
             <h1 className="mt-1 font-display text-4xl font-semibold tracking-tight text-foreground sm:text-5xl lg:text-6xl">
-              Prajwal Parajuli
+              {settings.site_title || 'Prajwal Parajuli'}
             </h1>
             {statusParts.length > 0 && (
               <div className="mt-2 flex flex-wrap items-center gap-4 text-sm text-muted-foreground">

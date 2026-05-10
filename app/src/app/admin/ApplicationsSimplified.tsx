@@ -811,6 +811,7 @@ export function AdminApplications() {
                         subtitle={[job?.company, job?.location].filter(Boolean).join(' · ')}
                         packetReady={packetReady}
                         followUp={application.follow_up_at}
+                        matchScore={job ? jobMatchMap.get(job.id)?.total_score : undefined}
                         onSelect={() => setSelectedApplicationId(application.id)}
                         primaryAction={primaryAction}
                       />
@@ -845,6 +846,22 @@ export function AdminApplications() {
                         ? 'Packet ready'
                         : 'Needs work'}
                     </Badge>
+                    {(() => {
+                      const match = jobMatchMap.get(selectedJob.id)
+                      if (!match) return null
+                      const pct = Math.round(match.total_score * 100)
+                      const color =
+                        pct >= 80
+                          ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                          : pct >= 60
+                            ? 'bg-amber-500/20 text-amber-400 border-amber-500/30'
+                            : 'bg-red-500/20 text-red-400 border-red-500/30'
+                      return (
+                        <Badge className={cn('gap-1 border', color)} variant="outline">
+                          {pct}% match
+                        </Badge>
+                      )
+                    })()}
                   </div>
                   <div className="flex flex-wrap items-center gap-1.5">
                     <Button
@@ -896,10 +913,66 @@ export function AdminApplications() {
                   </div>
                 </div>
 
-                {/* ── Company + match context (one line) ── */}
-                <p className="text-sm text-muted-foreground">
-                  {[selectedJob.company, selectedJob.location, jobMatchMap.get(selectedJob.id)?.reason_summary].filter(Boolean).join(' · ')}
-                </p>
+                {/* ── Company + match context ── */}
+                {(() => {
+                  const match = jobMatchMap.get(selectedJob.id)
+                  return (
+                    <div>
+                      <p className="text-sm text-muted-foreground">
+                        {[selectedJob.company, selectedJob.location].filter(Boolean).join(' · ')}
+                        {match?.reason_summary ? ` · ${match.reason_summary}` : ''}
+                      </p>
+                      {match && (match.matched_skill_names.length > 0 || match.matched_keywords.length > 0 || match.missing_signals.length > 0) && (
+                        <details className="mt-2 rounded-lg border border-white/10 bg-black/20">
+                          <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2 text-xs text-muted-foreground hover:text-foreground">
+                            <span>Match breakdown</span>
+                            <span className="text-[10px]">
+                              {match.matched_skill_names.length} skills · {match.matched_keywords.length} keywords
+                            </span>
+                          </summary>
+                          <div className="space-y-2 border-t border-white/10 px-3 py-3">
+                            {match.matched_skill_names.length > 0 && (
+                              <div>
+                                <p className="mb-1 text-[10px] uppercase tracking-wider text-emerald-400/80">Matched Skills</p>
+                                <div className="flex flex-wrap gap-1">
+                                  {match.matched_skill_names.map((s) => (
+                                    <span key={s} className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] text-emerald-300">
+                                      {s}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            {match.matched_keywords.length > 0 && (
+                              <div>
+                                <p className="mb-1 text-[10px] uppercase tracking-wider text-accent/80">Matched Keywords</p>
+                                <div className="flex flex-wrap gap-1">
+                                  {match.matched_keywords.map((k) => (
+                                    <span key={k} className="rounded-full bg-accent/15 px-2 py-0.5 text-[10px] text-accent/80">
+                                      {k}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            {match.missing_signals.length > 0 && (
+                              <div>
+                                <p className="mb-1 text-[10px] uppercase tracking-wider text-amber-400/80">Missing Signals</p>
+                                <div className="flex flex-wrap gap-1">
+                                  {match.missing_signals.map((m) => (
+                                    <span key={m} className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] text-amber-300">
+                                      {m}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </details>
+                      )}
+                    </div>
+                  )
+                })()}
 
                 {/* ── Inline metadata row — no card wrappers ── */}
                 <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
@@ -1583,6 +1656,7 @@ function DenseApplicationRow({
   subtitle,
   packetReady,
   followUp,
+  matchScore,
   onSelect,
   primaryAction,
 }: {
@@ -1591,6 +1665,7 @@ function DenseApplicationRow({
   subtitle: string
   packetReady: boolean
   followUp: string | null
+  matchScore?: number
   onSelect: () => void
   primaryAction: {
     label: string
@@ -1598,6 +1673,7 @@ function DenseApplicationRow({
     disabled: boolean
   }
 }) {
+  const pct = matchScore != null ? Math.round(matchScore * 100) : null
   return (
     <button
       type="button"
@@ -1618,6 +1694,14 @@ function DenseApplicationRow({
               'inline-block h-1.5 w-1.5 rounded-full shrink-0',
               packetReady ? 'bg-emerald-400' : 'bg-white/20'
             )} />
+            {pct != null && (
+              <span className={cn(
+                'shrink-0 text-[10px] font-medium',
+                pct >= 80 ? 'text-emerald-400' : pct >= 60 ? 'text-amber-400' : 'text-red-400'
+              )}>
+                {pct}%
+              </span>
+            )}
             {followUp && <span className="shrink-0">↻ {followUp}</span>}
           </div>
         </div>

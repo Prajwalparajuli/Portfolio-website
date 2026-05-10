@@ -17,16 +17,21 @@ import {
   Wrench,
 } from 'lucide-react'
 import { Link, useLocation } from 'react-router-dom'
+import { useEffect, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { getAdminPath } from '@/lib/adminConfig'
+import { getNotificationItems } from '@/lib/supabase'
 
 type NavItem = {
   href: string
   label: string
   icon: typeof LayoutDashboard
+  /** Live badge count (e.g. unread notifications) */
+  badge?: number
 }
 
 const primaryItems: NavItem[] = [
+  { href: getAdminPath('today'), label: 'Today', icon: LayoutDashboard },
   { href: getAdminPath('jobs'), label: 'Discover', icon: Compass },
   { href: getAdminPath('applications'), label: 'Applications', icon: BriefcaseBusiness },
   { href: getAdminPath('resume'), label: 'Resume', icon: FileText },
@@ -34,11 +39,9 @@ const primaryItems: NavItem[] = [
 ]
 
 const moreItems: NavItem[] = [
-  { href: getAdminPath('today'), label: 'Today', icon: LayoutDashboard },
   { href: getAdminPath('answers'), label: 'Answer Bank', icon: NotebookPen },
   { href: getAdminPath('contacts'), label: 'Contacts', icon: Users },
   { href: getAdminPath('skills'), label: 'Skills', icon: Tags },
-  { href: getAdminPath('inbox'), label: 'Inbox', icon: BellRing },
   { href: getAdminPath('watchlists'), label: 'Watchlists', icon: Wrench },
   { href: getAdminPath('activity'), label: 'Activity', icon: Activity },
   { href: getAdminPath('settings'), label: 'Settings', icon: Settings },
@@ -47,6 +50,31 @@ const moreItems: NavItem[] = [
 export function AdminSidebar() {
   const { signOut, user } = useAuth()
   const { pathname } = useLocation()
+  const [unreadCount, setUnreadCount] = useState(0)
+
+  useEffect(() => {
+    let mounted = true
+    const fetchUnread = async () => {
+      try {
+        const items = await getNotificationItems(50)
+        if (!mounted) return
+        setUnreadCount((items ?? []).filter((n) => !n.is_read).length)
+      } catch {
+        // Silently fail — sidebar shouldn't break on notification fetch errors
+      }
+    }
+    void fetchUnread()
+    const interval = setInterval(fetchUnread, 60_000)
+    return () => { mounted = false; clearInterval(interval) }
+  }, [])
+
+  /** Inbox with live unread badge */
+  const inboxItem: NavItem = {
+    href: getAdminPath('inbox'),
+    label: 'Inbox',
+    icon: BellRing,
+    badge: unreadCount,
+  }
 
   return (
     <aside className="flex w-60 flex-col border-r border-border/50 bg-background/95 backdrop-blur">
@@ -65,6 +93,7 @@ export function AdminSidebar() {
           {primaryItems.map((item) => (
             <SidebarLink key={item.href} item={item} pathname={pathname} />
           ))}
+          <SidebarLink item={inboxItem} pathname={pathname} />
         </div>
 
         <CompactGroup title="More" items={moreItems} pathname={pathname} />
@@ -148,7 +177,12 @@ function SidebarLink({
       )}
     >
       <Icon className={cn('h-4 w-4', isActive ? 'text-accent' : 'text-muted-foreground')} />
-      <span>{item.label}</span>
+      <span className="flex-1">{item.label}</span>
+      {(item.badge ?? 0) > 0 && (
+        <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-accent/20 px-1.5 text-[10px] font-semibold text-accent">
+          {item.badge}
+        </span>
+      )}
     </Link>
   )
 }
