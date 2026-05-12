@@ -5,6 +5,7 @@ import { HomePage } from './app/pages/HomePage'
 import { ProjectPage } from './app/pages/ProjectPage'
 import { AllProjectsPage } from './app/pages/AllProjectsPage'
 import { ResumePage } from './app/pages/ResumePage'
+import { NowPage } from './app/pages/NowPage'
 import { RecruiterPacketPage } from './app/pages/RecruiterPacketPage'
 import { AuthProvider } from './components/auth/AuthProvider'
 import { ErrorBoundary } from './components/ErrorBoundary'
@@ -34,6 +35,7 @@ function App() {
             <Route path="projects" element={<AllProjectsPage />} />
             <Route path="projects/:slug" element={<ProjectPage />} />
             <Route path="resume" element={<ResumePage />} />
+            <Route path="now" element={<NowPage />} />
             <Route path="packet/:token" element={<RecruiterPacketPage />} />
           </Route>
 

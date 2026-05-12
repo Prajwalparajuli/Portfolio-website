@@ -1,14 +1,24 @@
 import { corsHeaders, json, requireAdminUser } from '../_shared/common.ts'
 
 const MODEL_BY_TASK = {
+  // Quick tasks — Flash is fast and cheap
   generate_bullets: 'gemini-2.5-flash',
-  generate_summary: 'gemini-2.5-flash',
   improve_bullet: 'gemini-2.5-flash',
   generate_subtitle: 'gemini-2.5-flash',
-  tailor_resume: 'gemini-2.5-flash',
-  generate_cover_letter: 'gemini-2.5-flash',
-  analyze_jd_match: 'gemini-2.5-flash',
+  // High-stakes tasks — Pro for deeper reasoning
+  generate_summary: 'gemini-2.5-pro',
+  tailor_resume: 'gemini-2.5-pro',
+  generate_cover_letter: 'gemini-2.5-pro',
+  analyze_jd_match: 'gemini-2.5-pro',
 } as const
+
+/** Tasks that benefit from chain-of-thought reasoning (Pro tier). */
+const THINKING_ENABLED_TASKS: ReadonlySet<TaskName> = new Set([
+  'generate_summary',
+  'tailor_resume',
+  'generate_cover_letter',
+  'analyze_jd_match',
+])
 
 type TaskName = keyof typeof MODEL_BY_TASK
 
@@ -191,6 +201,18 @@ async function callGemini(task: TaskName, prompt: string, maxOutputTokens: numbe
   }
 
   const model = MODEL_BY_TASK[task]
+  const useThinking = THINKING_ENABLED_TASKS.has(task)
+
+  const generationConfig: Record<string, unknown> = {
+    temperature: useThinking ? 0.4 : 0.3,
+    maxOutputTokens,
+  }
+
+  // Disable thinking for Flash tasks (speed), enable for Pro tasks (quality)
+  if (!useThinking) {
+    generationConfig.thinkingConfig = { thinkingBudget: 0 }
+  }
+
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
     {
@@ -198,11 +220,7 @@ async function callGemini(task: TaskName, prompt: string, maxOutputTokens: numbe
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.3,
-          maxOutputTokens,
-          thinkingConfig: { thinkingBudget: 0 },
-        },
+        generationConfig,
       }),
     }
   )

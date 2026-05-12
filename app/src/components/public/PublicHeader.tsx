@@ -1,4 +1,4 @@
-import { Mail, FileDown, Linkedin, BriefcaseBusiness } from 'lucide-react'
+import { Mail, FileDown, Linkedin, BriefcaseBusiness, Sparkles } from 'lucide-react'
 import { Link, useLocation } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { PortfolioSettings } from '@/types'
@@ -32,6 +32,13 @@ export function PublicHeader({ settings }: PublicHeaderProps) {
               <BriefcaseBusiness className="mr-2 h-4 w-4" />
               Work
             </a>
+          </Button>
+
+          <Button asChild variant="ghost" size="sm">
+            <Link to="/now">
+              <Sparkles className="mr-2 h-4 w-4" />
+              Now
+            </Link>
           </Button>
 
           <Button asChild variant="ghost" size="sm">
