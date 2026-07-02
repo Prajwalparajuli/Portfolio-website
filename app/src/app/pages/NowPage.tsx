@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react'
 import { useOutletContext, Link } from 'react-router-dom'
-import { motion } from 'framer-motion'
+import { motion, type Variants } from 'framer-motion'
 import { ArrowRight, ArrowUpRight, Rocket, BookOpen, Brain, Code2, Calendar, MapPin, Sparkles, Coffee } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Footer } from '@/components/public/Footer'
@@ -115,7 +115,7 @@ const staggerChildren = {
   },
 }
 
-const fadeInUp = {
+const fadeInUp: Variants = {
   hidden: { opacity: 0, y: 20 },
   visible: {
     opacity: 1,
