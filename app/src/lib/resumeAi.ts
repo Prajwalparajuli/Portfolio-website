@@ -3,34 +3,61 @@ import { isSupabaseConfigured } from '@/lib/supabase'
 import { JobPosting, PortfolioSettings, Project, Skill } from '@/types'
 import {
   ExperienceItem,
+  ProjectExperienceItem,
   ResumeExperienceSection,
   ResumeSkillsSection,
   ResumeSummarySection,
   ResumeVariant,
 } from '@/types/resume'
+import { getProjectNarrative } from '@/lib/publicPortfolio'
+import { narrativeOverrides } from '@/lib/narrativeOverrides'
 
 const RESUME_AI_FUNCTION = 'resume-ai'
 const RESUME_AI_NOT_READY_MESSAGE =
   'AI resume tools are not ready yet. Deploy the Supabase Edge Function "resume-ai" and set GEMINI_API_KEY in Supabase secrets.'
 
 type ResumeAiProjectInput = {
+  id: string
   title: string
   description: string
   tags: string[]
+  evidence: string
 }
 
 type ResumeAiExperienceInput = {
   index: number
+  sourceId: string
+  kind: 'project' | 'custom'
   title: string
   tags: string[]
   bullets: string[]
 }
 
 function normalizeProject(project: Project): ResumeAiProjectInput {
+  const structured = project.structured_narrative ?? narrativeOverrides[project.slug] ?? null
+  const narrative = getProjectNarrative({ ...project, structured_narrative: structured })
+  const evidence = [
+    narrative.hook,
+    narrative.summary,
+    narrative.plainText,
+    ...(structured?.results ?? []),
+    ...(structured?.techHighlights ?? []),
+    ...(structured?.metrics ?? []).map((metric) =>
+      [metric.label, metric.value, metric.context].filter(Boolean).join(': ')
+    ),
+    ...(structured?.callouts ?? []).map((callout) =>
+      [callout.title, callout.value, callout.description].filter(Boolean).join(': ')
+    ),
+    ...(structured?.pipelineSteps ?? []).map((step) => `${step.label}: ${step.detail}`),
+    project.ask_me_about ?? '',
+  ].filter(Boolean).join(' | ')
+
   return {
+    id: project.id,
     title: project.title,
     description: project.description,
     tags: project.tags ?? [],
+    evidence: evidence.slice(0, 5000),
   }
 }
 
@@ -40,6 +67,8 @@ function normalizeExperienceItems(items: ExperienceItem[], projects: Project[]):
       const linkedProject = projects.find((project) => project.id === item.projectId)
       return {
         index,
+        sourceId: item.projectId,
+        kind: 'project',
         title: item.titleOverride || linkedProject?.title || 'Untitled project',
         tags: linkedProject?.tags ?? [],
         bullets: item.bullets,
@@ -48,6 +77,8 @@ function normalizeExperienceItems(items: ExperienceItem[], projects: Project[]):
 
     return {
       index,
+      sourceId: item.id,
+      kind: 'custom',
       title: item.role || 'Custom experience',
       tags: [],
       bullets: item.bullets,
@@ -144,14 +175,103 @@ export async function tailorResumeToJob(
   projects: Project[],
   skills: Skill[],
   orphanedSkills?: string[]
-): Promise<{ summary: string; bullets: Record<number, string[]> }> {
-  return invokeResumeAi<{ summary: string; bullets: Record<number, string[]> }>('tailor_resume', {
+): Promise<{
+  summary: string
+  items: ExperienceItem[]
+  selectedSkillIds: string[]
+  selectedProjectIds: string[]
+  jobTitle: string
+  jobCompany: string
+}> {
+  const result = await invokeResumeAi<{
+    summary: string
+    selectedEntries: Array<{
+      kind: 'project' | 'custom'
+      sourceId: string
+      bullets: string[]
+    }>
+    selectedSkillIds: string[]
+    jobTitle?: string
+    jobCompany?: string
+  }>('tailor_resume', {
     jd,
     currentSummary,
     entries: normalizeExperienceItems(expItems, projects),
-    skills: skills.map((skill) => skill.name),
+    projects: projects.map(normalizeProject),
+    skills: skills.map((skill) => ({
+      id: skill.id,
+      name: skill.name,
+      category: skill.category,
+    })),
     orphanedSkills,
   })
+
+  const projectById = new Map(projects.map((project) => [project.id, project]))
+  const currentProjectItems = new Map(
+    expItems
+      .filter((item): item is ProjectExperienceItem => item.kind === 'project')
+      .map((item) => [item.projectId, item])
+  )
+  const customItems = new Map(
+    expItems
+      .filter((item) => item.kind === 'custom')
+      .map((item) => [item.id, item])
+  )
+  const selectedItems: ExperienceItem[] = []
+  const selectedProjectIds: string[] = []
+  const seen = new Set<string>()
+
+  for (const selection of result.selectedEntries ?? []) {
+    if (!selection || typeof selection.sourceId !== 'string') continue
+    const key = `${selection.kind}:${selection.sourceId}`
+    if (seen.has(key)) continue
+    const bullets = Array.isArray(selection.bullets)
+      ? selection.bullets.filter((bullet) => typeof bullet === 'string' && bullet.trim().length > 20).slice(0, 4)
+      : []
+    if (bullets.length === 0) continue
+
+    if (selection.kind === 'custom') {
+      const existing = customItems.get(selection.sourceId)
+      if (!existing) continue
+      selectedItems.push({ ...existing, bullets })
+      seen.add(key)
+      continue
+    }
+
+    const project = projectById.get(selection.sourceId)
+    if (!project) continue
+    const existing = currentProjectItems.get(project.id)
+    selectedItems.push(existing
+      ? { ...existing, bullets }
+      : {
+          kind: 'project',
+          projectId: project.id,
+          titleOverride: project.title,
+          subtitle: '',
+          url: project.demo_url ?? '',
+          githubUrl: project.github_url?.replace(/^https?:\/\//, '') ?? '',
+          org: '',
+          dateRange: '',
+          bullets,
+        })
+    selectedProjectIds.push(project.id)
+    seen.add(key)
+  }
+
+  const validSkillIds = new Set(skills.map((skill) => skill.id))
+  const selectedSkillIds = (result.selectedSkillIds ?? [])
+    .filter((id) => typeof id === 'string' && validSkillIds.has(id))
+    .filter((id, index, all) => all.indexOf(id) === index)
+    .slice(0, 18)
+
+  return {
+    summary: result.summary?.trim() || currentSummary,
+    items: selectedItems.length > 0 ? selectedItems : expItems,
+    selectedSkillIds,
+    selectedProjectIds,
+    jobTitle: result.jobTitle?.trim() ?? '',
+    jobCompany: result.jobCompany?.trim() ?? '',
+  }
 }
 
 export async function generateCoverLetter(

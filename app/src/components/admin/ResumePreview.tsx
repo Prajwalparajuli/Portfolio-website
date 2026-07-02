@@ -5,8 +5,7 @@
  *
  * When `onUpdate` is provided all text fields become contentEditable inline.
  */
-import { useRef, useState, useEffect, ReactNode } from 'react'
-import { Mail, Phone, MapPin, Github, Linkedin } from 'lucide-react'
+import { useRef, useState, useEffect } from 'react'
 import {
   ResumeContent,
   ResumeEducationSection,
@@ -24,15 +23,15 @@ export const PAPER_W = 816
 export const PAPER_H = 1056
 
 const STYLE = {
-  body: '9.5pt',
+  body: '10pt',
   name: '18pt',
   head: '11pt',
-  small: '8.5pt',
-  padTop: 36,
-  padBottom: 36,
-  padH: 42,
-  entryGap: 10,
-  sectionGap: 12,
+  small: '9pt',
+  padTop: 48,
+  padBottom: 48,
+  padH: 48,
+  entryGap: 8,
+  sectionGap: 10,
 } as const
 
 // ─── InlineEdit ───────────────────────────────────────────────────────────────
@@ -159,42 +158,6 @@ function getSkillDisplayBlocks(section: ResumeSkillsSection | undefined, skills:
 
 // ─── ContactLine Renderer ─────────────────────────────────────────────────────
 
-function formatContactPart(part: string): { icon: ReactNode; text: ReactNode } {
-  const p = part.trim()
-  if (!p) return { icon: null, text: '' }
-
-  const iconStyle = { marginRight: 4, verticalAlign: '-2px', color: '#475569' } // Slate-600
-
-  if (p.includes('@')) {
-    return {
-      icon: <Mail size={12} style={iconStyle} />,
-      text: <span style={{ color: '#0284c7', textDecoration: 'underline' }}>{p}</span>
-    }
-  }
-  if (/github\.com/i.test(p)) {
-    return {
-      icon: <Github size={12} style={iconStyle} />,
-      text: <span style={{ color: '#334155' }}>{p.replace(/^https?:\/\//i, '').replace(/^github\.com\//i, '')}</span>
-    }
-  }
-  if (/linkedin\.com/i.test(p) || /^in\//i.test(p)) {
-    return {
-      icon: <Linkedin size={12} style={iconStyle} />,
-      text: <span style={{ color: '#334155' }}>{p.replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/^linkedin\.com\/in\//i, '').replace(/^linkedin\.com\//i, '')}</span>
-    }
-  }
-  if (/^[\d\s()+-]{7,}$/.test(p)) {
-    return {
-      icon: <Phone size={12} style={iconStyle} />,
-      text: <span style={{ color: '#334155' }}>{p}</span>
-    }
-  }
-  return {
-    icon: <MapPin size={12} style={iconStyle} />,
-    text: <span style={{ color: '#334155' }}>{p}</span>
-  }
-}
-
 function ContactLineDisplay({ line }: { line: string }) {
   if (!line?.trim()) return null
 
@@ -219,16 +182,12 @@ function ContactLineDisplay({ line }: { line: string }) {
   }
 
   return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '20px', alignItems: 'center' }}>
-      {parts.map((p, i) => {
-        const { icon, text } = formatContactPart(p)
-        if (!text) return null
-        return (
-          <span key={i} style={{ display: 'flex', alignItems: 'center', fontSize: '9pt', fontWeight: 500 }}>
-            {icon} {text}
-          </span>
-        )
-      })}
+    <div style={{ fontSize: STYLE.small, color: '#222', textAlign: 'center', lineHeight: 1.25 }}>
+      {parts.map((part, index) => (
+        <span key={`${part}-${index}`}>
+          {index > 0 ? ' | ' : ''}{part.replace(/^https?:\/\//i, '').replace(/^www\./i, '')}
+        </span>
+      ))}
     </div>
   )
 }

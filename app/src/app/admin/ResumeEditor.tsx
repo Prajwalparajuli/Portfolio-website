@@ -43,6 +43,7 @@ import {
   generateResumeSubtitle,
   improveResumeBullet,
   tailorResumeToJob,
+  generateCoverLetter,
   analyzeJdMatch,
 } from '@/lib/resumeAi'
 
@@ -142,7 +143,7 @@ function parseBulletLines(text: string, limit = 4): string[] {
     .slice(0, limit)
 }
 
-/** Generate 4 STAR-formula bullets using Gemini */
+/** Legacy local XYZ bullet generator; secure Edge Function is used by the UI. */
 async function callGeminiForBullets(project: Project, apiKey: string): Promise<string[]> {
   const cleanDesc = project.description
     .replace(/<[^>]+>/g, ' ')
@@ -165,7 +166,7 @@ Write EXACTLY 4 resume bullet points for the project below. Follow these rules s
 
 RULES:
 - Each bullet starts with a PAST-TENSE action verb (Built, Developed, Engineered, Designed, Optimized, Analyzed, Evaluated, Implemented, Deployed, Processed, Automated, Constructed…)
-- STAR formula: [Verb] + [What you did + tools/tech + scale] + [quantified result or outcome]
+- Google XYZ formula: [Accomplished X] + [verified Y when available] + [by doing Z]
 - CRITICAL RULE: ABSOLUTELY NO PLACEHOLDERS. NEVER use "[X]", "[X]%", "[Metric]", or any bracketed text.
 - If you don't have a specific metric from the description, describe the outcome qualitatively (e.g., "significantly improved performance" instead of "achieved [X]% performance").
 - 80–175 characters per bullet — no shorter, no longer
@@ -187,16 +188,7 @@ IMPORTANT: Output EXACTLY 4 lines. Each line is one bullet. No numbering. No das
   const text = await gemini(prompt, apiKey, 1200)
   const bullets = parseBulletLines(text, 4)
 
-  // If we somehow got fewer than 4, pad with template stubs so UI always shows 4 slots
-  while (bullets.length < 4) {
-    const stubs = [
-      `Built [system] using ${tags}, processing data to achieve measurable results.`,
-      `Processed and cleaned real-world data using ${tags}, engineering key features.`,
-      `Evaluated model architectures using precision@k, recall@k, and NDCG@k metrics.`,
-      `Deployed solution as [Streamlit app / REST API] and presented findings to stakeholders.`,
-    ]
-    bullets.push(stubs[bullets.length] ?? '')
-  }
+  if (bullets.length === 0) bullets.push(`Built ${project.title} using ${tags}.`)
 
   return bullets
 }
@@ -258,7 +250,7 @@ async function callGeminiImproveBullet(
 RULES:
 1. Keep the same core facts — do NOT invent numbers
 2. Start with a strong PAST-TENSE action verb (Built, Engineered, Developed, Optimized, Analyzed, Evaluated, Deployed, Automated, Implemented…)
-3. Add "[X]" or "[X]%" placeholder if a metric is missing or vague
+3. Include a metric only when it exists in the original bullet; never add placeholders or guessed values
 4. Output must be 80–175 characters
 5. NEVER start with "I", "We", "Responsible for", "Leveraged", "Utilized"
 
@@ -520,10 +512,10 @@ function scoreBullet(b: string): { hasVerb: boolean; hasMetric: boolean; goodLen
 }
 
 /**
- * Generate STAR-structured bullet suggestions from a project.
- * These follow the formula: [Action Verb] + [What you did] + [How/tools] + [Quantified Result].
+ * Generate factual bullet suggestions from a project.
+ * These follow Google's XYZ formula when the source includes a measured result.
  * Uses the project description, tags, and title to populate the technical context.
- * Metric placeholders are inserted so the user knows to fill them in.
+ * Missing metrics are never replaced with placeholders or invented values.
  */
 function extractBulletsFromProject(project: Project): string[] {
   // ── Step 1: clean raw text ─────────────────────────────────────────────────
@@ -568,7 +560,7 @@ function extractBulletsFromProject(project: Project): string[] {
   const numbersInDesc = raw.match(/\b\d[\d,.+kKMB%]*\b/g) ?? []
   const bigNumbers = numbersInDesc.filter(n => parseFloat(n.replace(/,/g, '')) > 99)
 
-  // ── Step 5: build STAR-formula bullets ────────────────────────────────────
+  // ── Step 5: build factual XYZ-style bullets ──────────────────────────────
   const results: string[] = []
 
   // Bullet 1 — WHAT you built (pipeline / system bullet)
@@ -578,24 +570,19 @@ function extractBulletsFromProject(project: Project): string[] {
     const startsWithVerb = ALL_ACTION_VERBS_FLAT.some(v => first.toLowerCase().startsWith(v.toLowerCase()))
     results.push(startsWithVerb ? first : `Built ${first.charAt(0).toLowerCase() + first.slice(1)}`)
   } else {
-    results.push(`Built [describe the system/model] using ${techStr}.`)
+    results.push(`Built ${project.title} using ${techStr}.`)
   }
 
   // Bullet 2 — DATA / SCALE bullet (with real numbers if found)
   if (candidates[1]) {
     results.push(candidates[1])
-  } else if (bigNumbers.length > 0) {
-    results.push(`Processed ${bigNumbers[0]}+ records/samples using ${techStr}, enabling [describe outcome].`)
-  } else {
-    results.push(`Processed and cleaned large-scale real-world data using ${techStr || 'Python'}, handling missing values, outliers, and feature engineering.`)
+  } else if (bigNumbers.length > 0 && candidates[0]) {
+    results.push(`Processed ${bigNumbers[0]} records using ${techStr}, supporting the verified project outcome.`)
   }
 
   // Bullet 3 — RESULT / IMPACT bullet
   if (candidates[2]) {
     results.push(candidates[2])
-  } else {
-    const metricText = bigNumbers[1] ? `Achieved ${bigNumbers[1]} accuracy / improvement` : 'Improved model performance significantly'
-    results.push(`${metricText}; deployed as [Streamlit app / REST API / notebook] and presented findings to [audience].`)
   }
 
   // Bullet 4 — VALIDATION / EVALUATION bullet (optional but recommended for DS)
@@ -609,9 +596,7 @@ function extractBulletsFromProject(project: Project): string[] {
 // ─── summary template ─────────────────────────────────────────────────────────
 
 /**
- * Generate a STAR-structured summary template from portfolio settings.
- * Formula (best practice per Columbia / Resumly):
- *   [Title] with [context]. Skilled in [tools]. [Achievement]. [Goal/value prop].
+ * Generate a factual summary template from portfolio settings.
  */
 function buildSummaryTemplate(s: PortfolioSettings, skills: Skill[]): string {
   const topSkills = skills.slice(0, 5).map(sk => sk.name).join(', ')
@@ -621,8 +606,7 @@ function buildSummaryTemplate(s: PortfolioSettings, skills: Skill[]): string {
   return [
     `${degree}${location ? ` based in ${location}` : ''} with hands-on research and project experience in machine learning, deep learning, and NLP.`,
     `Skilled in ${topSkills || 'Python, SQL, and machine learning frameworks'}, with a strong foundation in statistics, data wrangling, and end-to-end model development.`,
-    `Proven ability to transform complex datasets into actionable insights, driving robust outcomes and measurable business impact on [project type].`,
-    `Passionate about building interpretable, production-ready AI solutions that drive measurable business impact.`,
+    'Applies these tools across portfolio projects spanning model development, evaluation, and technical delivery.',
   ].join(' ')
 }
 
@@ -701,12 +685,12 @@ function BulletListEditor({ bullets, onChange, onImproveBullet }: BulletListEdit
     <div className="space-y-3">
       {/* Formula reminder */}
       <div className="rounded-md bg-blue-950/30 border border-blue-800/30 px-3 py-2 text-[11px] text-blue-300/80">
-        <span className="font-semibold text-blue-300">Formula: </span>
-        <span className="text-blue-200/70">[Action Verb]</span>
-        {' + '}
-        <span className="text-blue-200/70">[What you did + tools/scale]</span>
-        {' + '}
-        <span className="text-blue-200/70">[Quantified result — use a number!]</span>
+        <span className="font-semibold text-blue-300">Google XYZ: </span>
+        <span className="text-blue-200/70">Accomplished X</span>
+        {', measured by '}
+        <span className="text-blue-200/70">verified Y</span>
+        {', by doing '}
+        <span className="text-blue-200/70">Z</span>
       </div>
 
       {bullets.map((b, i) => {
@@ -1050,9 +1034,9 @@ function BestPracticesPanel() {
           <div className="space-y-2">
             <h4 className="text-white font-semibold text-xs uppercase tracking-wider">Bullet Point Formula</h4>
             <div className="rounded-md bg-blue-950/30 border border-blue-800/30 px-3 py-2 text-blue-200/80 font-mono text-[11px]">
-              [Action Verb] + [What] + [How / tools / scale] + [Metric]
+              Accomplished X, measured by verified Y, by doing Z
             </div>
-            <p className="leading-relaxed">Start with a <span className="text-white">past-tense action verb</span> (Built, Developed, Engineered, Optimized…). Describe <span className="text-white">what you did and with what tools or data</span>. End with a <span className="text-yellow-400 font-medium">number</span> — accuracy, dataset size, % improvement, user count, speed gain.</p>
+            <p className="leading-relaxed">Start with a <span className="text-white">past-tense action verb</span> (Built, Developed, Engineered, Optimized…). Lead with the accomplishment, use a measurement only when verified, and explain the tools or method that produced it.</p>
             <div className="space-y-1">
               <p className="text-red-400/80 line-through">Used Python to make a recommendation model.</p>
               <p className="text-green-400">Built a hybrid recommender (ALS + LightGBM) on 3.4M+ orders, achieving NDCG@10 of 0.82.</p>
@@ -1082,9 +1066,9 @@ function BestPracticesPanel() {
             <h4 className="text-white font-semibold text-xs uppercase tracking-wider">Summary Formula (70–100 words)</h4>
             <ol className="space-y-1.5 list-none">
               {[
-                ['1', 'Sentence 1', 'Title/degree + institution + years of experience + specialties'],
+                ['1', 'Sentence 1', 'Target role + verified degree or positioning + specialties'],
                 ['2', 'Sentence 2', 'Core tools + methodologies — mirror keywords from the job posting'],
-                ['3', 'Sentence 3', 'Your biggest result with a metric ("achieving X% accuracy on Y project")'],
+                ['3', 'Sentence 3', 'Strongest verified project result; include its metric only when documented'],
                 ['4', 'Sentence 4', 'Value you bring / what you are passionate about building'],
               ].map(([n, title, desc]) => (
                 <li key={n} className="flex gap-2">
@@ -1102,7 +1086,7 @@ function BestPracticesPanel() {
               {[
                 ['✓', 'Use exact keywords from the job description (e.g. "LLM fine-tuning", "A/B testing")'],
                 ['✓', 'Every bullet must start with a capital past-tense verb — ATS parses the first word'],
-                ['✓', 'Include at least one number per bullet — % accuracy, dataset size, user count, time saved'],
+                ['✓', 'Include a number only when the source project verifies the exact metric and context'],
                 ['✓', '50–175 characters per bullet — short enough for a 6-second recruiter scan'],
                 ['✓', '3–4 projects if no work experience; 1–2 if you have professional experience'],
                 ['✗', 'Never start with "I", "We", "Responsible for", "Helped with", or "Used X to…"'],
@@ -1717,45 +1701,79 @@ export function AdminResumeEditor() {
     try {
       const expItems = expSection?.items ?? []
       const currentSummary = summSection?.text ?? ''
-      const { summary, bullets } = await tailorResumeToJob(jdText, currentSummary, expItems, projects, skills, orphanedSkillsNames)
-      const nextResume: ResumeContent = {
+      const tailored = await tailorResumeToJob(jdText, currentSummary, expItems, projects, skills, orphanedSkillsNames)
+      let nextResume: ResumeContent = {
         ...resume,
         sections: resume.sections.map((section) => {
           if (section.type === 'summary' && tailorSummaryEnabled) {
             return {
               ...section,
-              text: summary,
+              text: tailored.summary,
             }
           }
 
           if (section.type === 'experience' && tailorBulletsEnabled) {
             return {
               ...section,
-              items: section.items.map((item, index) =>
-                bullets[index] ? { ...item, bullets: bullets[index] } : item
-              ),
+              items: tailored.items,
             }
+          }
+
+          if (section.type === 'skills' && tailorBulletsEnabled && tailored.selectedSkillIds.length > 0) {
+            return { ...section, includedIds: tailored.selectedSkillIds }
           }
 
           return section
         }),
       }
+
+      let coverLetter = nextResume.tailoring?.coverLetter ?? ''
+      if (activeVariant) {
+        coverLetter = await generateCoverLetter(
+          {
+            title: selectedJob?.title || tailored.jobTitle,
+            company: selectedJob?.company || tailored.jobCompany,
+            location: selectedJob?.location || '',
+            employment_type: selectedJob?.employment_type || '',
+            description: jdText,
+          },
+          { ...activeVariant, content: nextResume },
+          skills
+        )
+      }
+
+      const selectedProjectIds = tailored.items
+        .filter((item): item is ProjectExperienceItem => item.kind === 'project')
+        .map((item) => item.projectId)
+      nextResume = {
+        ...nextResume,
+        tailoring: {
+          coverLetter,
+          jobDescription: jdText,
+          jobTitle: selectedJob?.title || tailored.jobTitle,
+          jobCompany: selectedJob?.company || tailored.jobCompany,
+          selectedProjectIds,
+          selectedSkillIds: tailored.selectedSkillIds,
+          tailoredAt: new Date().toISOString(),
+        },
+      }
       setResume(nextResume)
       const savedVariant = await persistActiveVariant({
         resumeOverride: nextResume,
         applicationPatch:
-          selectedApplication && (selectedApplication.status === 'saved' || selectedApplication.status === 'tailoring')
-            ? { status: 'ready_to_apply' }
+          selectedApplication
+            ? {
+                status: selectedApplication.status === 'saved' || selectedApplication.status === 'tailoring'
+                  ? 'ready_to_apply'
+                  : selectedApplication.status,
+                cover_letter: coverLetter,
+              }
             : undefined,
       })
-      const tailoredParts = [
-        tailorSummaryEnabled ? 'summary' : null,
-        tailorBulletsEnabled ? 'bullets' : null,
-      ].filter(Boolean).join(' + ')
       const packetMessage = selectedApplication && savedVariant
         ? ' The application packet was updated automatically.'
         : ''
-      setTailorMsg(`Tailored ${tailoredParts}. Review your bullets and fill in any blanks.${packetMessage}`)
+      setTailorMsg(`Selected the strongest projects and skills, wrote XYZ bullets, and saved the resume + cover letter.${packetMessage}`)
       setTimeout(() => setTailorMsg(null), 8000)
     } catch (e) {
       setTailorMsg(e instanceof Error ? `Error: ${e.message}` : 'Tailoring failed — try again')
@@ -2119,7 +2137,7 @@ export function AdminResumeEditor() {
                 </label>
                 <label className="flex items-center gap-2 text-xs text-muted-foreground">
                   <Switch checked={tailorBulletsEnabled} onCheckedChange={setTailorBulletsEnabled} />
-                  Tailor bullets
+                  Select projects, skills + XYZ bullets
                 </label>
                 {activeVariant?.isPrimary && variantsSupported && (
                   <span className="text-[11px] text-blue-300/70">
@@ -2177,6 +2195,38 @@ export function AdminResumeEditor() {
                     </p>
                   )}
                 </div>
+
+                {resume.tailoring && (
+                  <div className="w-full space-y-2 rounded-lg border border-white/10 bg-black/30 p-3">
+                    <div>
+                      <Label className="text-xs text-foreground">Saved cover letter</Label>
+                      <p className="text-[11px] text-muted-foreground">
+                        This letter is stored with the resume variant and linked application packet.
+                      </p>
+                    </div>
+                    <Textarea
+                      value={resume.tailoring.coverLetter}
+                      onChange={(event) => {
+                        const coverLetter = event.target.value
+                        setResume((current) => current?.tailoring
+                          ? { ...current, tailoring: { ...current.tailoring, coverLetter } }
+                          : current)
+                      }}
+                      onBlur={(event) => {
+                        const coverLetter = event.target.value
+                        const nextResume = resume.tailoring
+                          ? { ...resume, tailoring: { ...resume.tailoring, coverLetter } }
+                          : resume
+                        void persistActiveVariant({
+                          resumeOverride: nextResume,
+                          applicationPatch: selectedApplication ? { cover_letter: coverLetter } : undefined,
+                        })
+                      }}
+                      rows={10}
+                      className="bg-black/40 border-white/10 text-sm leading-relaxed resize-y"
+                    />
+                  </div>
+                )}
 
                 {atsMatchScore !== null && atsMatchKeywords && (
                   <div className="flex-1 min-w-[300px] border border-white/10 rounded-lg bg-black/40 p-3 space-y-3">
@@ -2466,8 +2516,7 @@ export function AdminResumeEditor() {
         {showJDPanel && (
           <div className="border-t border-white/10 px-4 pb-4 pt-3 space-y-3">
             <p className="text-[11px] text-muted-foreground/70">
-              Paste the job description below. Secure server-side AI will rewrite your summary and project bullets to emphasize the exact skills and keywords the employer wants without fabricating experience.
-              <span className="text-yellow-400/70"> Review everything and fill in any [X] placeholders after.</span>
+              Paste the job description below. Secure server-side AI will rank every portfolio project and verified skill, select the strongest evidence, and write factual Google XYZ bullets without changing project metadata.
               {activeVariant?.isPrimary && variantsSupported && (
                 <span className="text-blue-300/70"> Duplicate the master first if you want to keep a separate job-specific copy.</span>
               )}
@@ -2479,7 +2528,7 @@ export function AdminResumeEditor() {
               </label>
               <label className="flex items-center gap-2 text-xs text-muted-foreground">
                 <Switch checked={tailorBulletsEnabled} onCheckedChange={setTailorBulletsEnabled} />
-                Tailor bullets
+                Select projects, skills + XYZ bullets
               </label>
             </div>
             <Textarea
@@ -3105,6 +3154,8 @@ function SectionCard({
 
 // ─── Print HTML generator ─────────────────────────────────────────────────────
 
+// Legacy export kept for compatibility with older callers.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function generatePrintHTML(
   resume: ResumeContent,
   settings: PortfolioSettings,

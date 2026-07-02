@@ -79,6 +79,17 @@ export interface ResumeSkillsSection {
   displayStyle: 'categorized' | 'comma' | 'pipe' | 'bullet'
 }
 
+/** Job-specific artifacts saved with a tailored resume variant. */
+export interface ResumeTailoringMetadata {
+  coverLetter: string
+  jobDescription: string
+  jobTitle: string
+  jobCompany: string
+  selectedProjectIds: string[]
+  selectedSkillIds: string[]
+  tailoredAt: string
+}
+
 /** Top-level section union - order of this array = order on resume */
 export type ResumeSection =
   | ResumeSummarySection
@@ -93,6 +104,8 @@ export interface ResumeContent {
   sections: ResumeSection[]
   /** Soft target for length guidance (words). Default 600 ~= 1 dense page */
   targetWords: number
+  /** Not rendered on the resume; persisted with tailored variants as one packet. */
+  tailoring?: ResumeTailoringMetadata
 }
 
 export type ResumeVariantType = 'master' | 'tailored' | 'snapshot'
@@ -324,6 +337,27 @@ export function normalizeResumeContent(
       typeof content.targetWords === 'number' && Number.isFinite(content.targetWords)
         ? content.targetWords
         : fallback.targetWords,
+    tailoring: normalizeTailoringMetadata(content.tailoring),
+  }
+}
+
+function normalizeTailoringMetadata(
+  value: ResumeContent['tailoring']
+): ResumeTailoringMetadata | undefined {
+  if (!value || typeof value !== 'object') return undefined
+
+  return {
+    coverLetter: typeof value.coverLetter === 'string' ? value.coverLetter : '',
+    jobDescription: typeof value.jobDescription === 'string' ? value.jobDescription : '',
+    jobTitle: typeof value.jobTitle === 'string' ? value.jobTitle : '',
+    jobCompany: typeof value.jobCompany === 'string' ? value.jobCompany : '',
+    selectedProjectIds: Array.isArray(value.selectedProjectIds)
+      ? value.selectedProjectIds.filter((id): id is string => typeof id === 'string')
+      : [],
+    selectedSkillIds: Array.isArray(value.selectedSkillIds)
+      ? value.selectedSkillIds.filter((id): id is string => typeof id === 'string')
+      : [],
+    tailoredAt: typeof value.tailoredAt === 'string' ? value.tailoredAt : '',
   }
 }
 

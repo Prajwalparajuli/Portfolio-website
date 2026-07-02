@@ -23,16 +23,26 @@ const THINKING_ENABLED_TASKS: ReadonlySet<TaskName> = new Set([
 type TaskName = keyof typeof MODEL_BY_TASK
 
 type ResumeAiProject = {
+  id: string
   title: string
   description: string
   tags: string[]
+  evidence: string
 }
 
 type ResumeAiExperienceEntry = {
   index: number
+  sourceId: string
+  kind: 'project' | 'custom'
   title: string
   tags: string[]
   bullets: string[]
+}
+
+type ResumeAiSkill = {
+  id: string
+  name: string
+  category: string
 }
 
 type ResumeAiRequest =
@@ -70,7 +80,8 @@ type ResumeAiRequest =
         jd: string
         currentSummary?: string
         entries?: ResumeAiExperienceEntry[]
-        skills?: string[]
+        projects?: ResumeAiProject[]
+        skills?: ResumeAiSkill[]
       }
     }
   | {
@@ -129,10 +140,31 @@ function asProject(value: unknown, field: string): ResumeAiProject {
 
   const project = value as Record<string, unknown>
   return {
+    id: typeof project.id === 'string' ? project.id.trim() : '',
     title: asString(project.title, `${field}.title`),
     description: asString(project.description, `${field}.description`),
     tags: asStringArray(project.tags, `${field}.tags`),
+    evidence: typeof project.evidence === 'string' ? project.evidence.trim() : '',
   }
+}
+
+function asProjectArray(value: unknown): ResumeAiProject[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((item, index) => asProject(item, `projects[${index}]`))
+    .filter((project) => project.id && project.title)
+}
+
+function asSkillArray(value: unknown): ResumeAiSkill[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object')
+    .map((item) => ({
+      id: typeof item.id === 'string' ? item.id.trim() : '',
+      name: typeof item.name === 'string' ? item.name.trim() : '',
+      category: typeof item.category === 'string' ? item.category.trim() : '',
+    }))
+    .filter((skill) => skill.id && skill.name)
 }
 
 function asEntryArray(value: unknown): ResumeAiExperienceEntry[] {
@@ -144,6 +176,8 @@ function asEntryArray(value: unknown): ResumeAiExperienceEntry[] {
     .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object')
     .map((item, index) => ({
       index: typeof item.index === 'number' ? item.index : index,
+      sourceId: typeof item.sourceId === 'string' ? item.sourceId.trim() : String(index),
+      kind: item.kind === 'project' ? 'project' as const : 'custom' as const,
       title: typeof item.title === 'string' ? item.title.trim() : '',
       tags: asStringArray(item.tags, `entries[${index}].tags`),
       bullets: asStringArray(item.bullets, `entries[${index}].bullets`),
@@ -257,11 +291,11 @@ Write EXACTLY 4 resume bullet points for the project below. Follow these rules s
 
 RULES:
 - Each bullet starts with a past-tense action verb (Built, Developed, Engineered, Designed, Optimized, Analyzed, Evaluated, Implemented, Deployed, Processed, Automated, Constructed)
-- STAR formula: [Verb] + [What you did + tools/tech + scale] + [quantified result or outcome]
+- Google XYZ formula: [Accomplished X] + [as measured by verified Y, when available] + [by doing Z with specific tools/methods]
 - CRITICAL RULE: ABSOLUTELY NO PLACEHOLDERS. NEVER use "[X]", "[X]%", "[Metric]", or any bracketed text. If you don't have a specific metric from the description, describe the outcome qualitatively (e.g., "significantly improved performance" instead of "achieved [X]% performance").
 - 80-175 characters per bullet - no shorter, no longer
 - NEVER start with "I", "We", "Responsible for", "Helped", "Utilized", "Leveraged", or "Used X to"
-- Use numbers already in the description whenever possible. If none exist, do not invent them.
+- Use numbers already in the description whenever possible. If none exist, omit Y and do not invent it.
 
 COVER THESE 4 ASPECTS IN ORDER:
 Line 1: What was built - the system/model/pipeline name + core algorithms + tech stack
@@ -278,15 +312,7 @@ IMPORTANT: Output EXACTLY 4 lines. Each line is one bullet. No numbering. No das
   const text = await callGemini('generate_bullets', prompt, 1200)
   const bullets = parseBulletLines(text, 4)
 
-  while (bullets.length < 4) {
-    const stubs = [
-      `Built ${project.title} using ${tags}, implementing core algorithms to solve the target problem.`,
-      `Processed and cleaned dataset using ${tags}, performing feature engineering and data validation.`,
-      `Evaluated model architectures to optimize performance and improve baseline metrics.`,
-      `Deployed solution and presented findings, enabling data-driven decision making.`,
-    ]
-    bullets.push(stubs[bullets.length] ?? '')
-  }
+  if (bullets.length === 0) bullets.push(`Built ${project.title} using ${tags}.`)
 
   return { bullets }
 }
@@ -400,26 +426,45 @@ async function handleTailorResume(payload: {
   jd: string
   currentSummary?: string
   entries?: ResumeAiExperienceEntry[]
-  skills?: string[]
+  projects?: ResumeAiProject[]
+  skills?: ResumeAiSkill[]
   orphanedSkills?: string[]
 }) {
   const jd = asString(payload.jd, 'jd').slice(0, 4000)
   const currentSummary = typeof payload.currentSummary === 'string' ? payload.currentSummary.trim() : ''
   const entries = asEntryArray(payload.entries)
-  const skills = asStringArray(payload.skills, 'skills')
-  const orphanedSkills = asStringArray(payload.orphanedSkills || [], 'orphanedSkills')
+  const projects = asProjectArray(payload.projects)
+  const skills = asSkillArray(payload.skills)
 
   const entriesSnapshot = entries
     .map((entry) => {
       const tags = entry.tags.join(', ')
       const bullets = entry.bullets.filter(Boolean).map((bullet) => `  - ${bullet}`).join('\n')
-      return `Entry ${entry.index} - ${entry.title} [${tags}]:\n${bullets}`
+      return `${entry.kind.toUpperCase()} ${entry.sourceId} - ${entry.title} [${tags}]:\n${bullets}`
     })
     .join('\n\n')
 
-  const prompt = `You are a senior technical resume strategist who has spent 20 years in technical recruiting at companies like Google, Amazon, and top AI startups. You have personally reviewed over 50,000 resumes and know exactly how ATS systems parse, score, and rank candidates. You also know what makes a human hiring manager's eyes light up vs. glaze over.
+  const projectsSnapshot = projects
+    .map((project) => {
+      const evidence = sanitizeText(project.evidence || project.description).slice(0, 2200)
+      return `PROJECT ${project.id} - ${project.title}\nTechnologies: ${project.tags.join(', ') || 'Not specified'}\nVerified evidence: ${evidence || 'No additional evidence available.'}`
+    })
+    .join('\n\n')
 
-Your task: Rewrite this resume's summary and bullet points to maximize this candidate's chances for the specific job description below.
+  const skillsSnapshot = skills
+    .map((skill) => `${skill.id} | ${skill.name}${skill.category ? ` | ${skill.category}` : ''}`)
+    .join('\n')
+
+  const prompt = `You are a rigorous technical resume strategist. Build a genuinely job-specific, one-page resume from the candidate's complete verified portfolio.
+
+This is a SELECTION task first and a writing task second. Rank every available portfolio project, custom experience, and verified skill against the job description. Select only the strongest evidence; do not merely rephrase the current resume.
+
+FACTUAL SAFETY:
+- Return only project, custom experience, and skill IDs supplied below.
+- Never invent or alter titles, employers, organizations, dates, URLs, technologies, responsibilities, results, scale, or metrics.
+- Use a technology in a project bullet only when that project's verified evidence supports it.
+- Never add placeholders, brackets, guessed numbers, or implied measurements.
+- The application preserves all source metadata. You may change only summary and bullet wording.
 
 ═══ YOUR EXPERT METHODOLOGY ═══
 
@@ -428,19 +473,19 @@ Your task: Rewrite this resume's summary and bullet points to maximize this cand
    - Mirror these keywords EXACTLY as written in the JD (e.g., if JD says "machine learning pipelines" — use that exact phrase, not "ML systems").
    - Front-load the most important keywords in the first bullet of each entry.
 
-2. BULLET FORMULA (CAR: Challenge → Action → Result):
+2. GOOGLE XYZ BULLET FORMULA:
    - Start with a strong PAST-TENSE action verb. Never "Utilized", "Leveraged", "Responsible for", "Helped with".
    - GOOD verbs: Engineered, Architected, Optimized, Developed, Built, Deployed, Designed, Implemented, Automated, Analyzed, Reduced, Accelerated, Processed, Trained, Evaluated, Integrated.
-   - After the verb: [WHAT you built/did] + [HOW using specific tools/tech] + [WHY it mattered / scale / outcome].
-   - Include technical specificity: model names (XGBoost, BERT, ResNet), dataset sizes, performance metrics if available.
-   - If no hard number exists, describe TECHNICAL COMPLEXITY: "across 6 heterogeneous feature sets" or "handling class imbalance with SMOTE and stratified k-fold."
+   - Use Google's XYZ structure: Accomplished [X], as measured by [Y], by doing [Z].
+   - Lead with X, include Y only when the evidence contains that exact measurement, and explain Z with verified methods and tools.
+   - If no verified measurement exists, write X by doing Z and state only a verified qualitative outcome. Never fabricate Y.
+   - Include technical specificity only when supported by the project evidence.
    - NEVER use "[X]" or "[X]%" placeholders. Every word must be final and real.
 
 3. DYNAMIC BULLET ALLOCATION (this is what separates good from great):
    - Score each entry 1-10 for relevance to this specific JD.
-   - 8-10 relevance: 4-6 detailed, keyword-rich bullets. This is your star content.
-   - 5-7 relevance: 2-3 bullets, emphasizing transferable skills from the JD.
-   - 1-4 relevance: 1-2 compact bullets. Don't waste resume space on irrelevant work.
+   - Select 3-4 total entries, or up to 5 when a custom professional experience is highly relevant.
+   - Return 2-4 concise bullets per selected entry and order the strongest match first.
 
 4. SUMMARY REWRITE:
    - Open with the EXACT job title from the JD (or close synonym) + specialization.
@@ -452,10 +497,6 @@ Your task: Rewrite this resume's summary and bullet points to maximize this cand
    - No tables, columns, or special characters.
    - Spell out acronyms on first use if the JD does: "Natural Language Processing (NLP)".
    - Match the JD's spelling: "TensorFlow" not "Tensorflow", "scikit-learn" not "sklearn".
-${orphanedSkills.length > 0 ? `
-6. ORPHANED SKILLS INJECTION:
-   The candidate has these verified skills that aren't yet mentioned in any bullet. Naturally weave relevant ones into bullets where they honestly apply:
-   ${orphanedSkills.join(', ')}` : ''}
 
 ═══ INPUTS ═══
 
@@ -465,19 +506,27 @@ ${jd}
 CURRENT SUMMARY:
 ${currentSummary || '(none yet)'}
 
-CURRENT EXPERIENCE ENTRIES:
+CURRENT RESUME ENTRIES (custom experience can only be selected from this list; current project bullets are additional verified evidence):
 ${entriesSnapshot}
 
-ALL CANDIDATE SKILLS: ${skills.join(', ')}
+ALL PORTFOLIO PROJECTS:
+${projectsSnapshot}
+
+ALL VERIFIED SKILLS (return exact IDs):
+${skillsSnapshot}
 
 ═══ OUTPUT FORMAT ═══
 
 Return JSON exactly like this:
 {
   "summary": "the rewritten summary paragraph",
-  "entries": [
-    { "index": 0, "bullets": ["bullet1", "bullet2", "bullet3", "bullet4"] }
-  ]
+  "jobTitle": "explicit title or empty string",
+  "jobCompany": "explicit company or empty string",
+  "selectedEntries": [
+    { "kind": "project", "sourceId": "an exact project ID", "bullets": ["XYZ bullet 1", "XYZ bullet 2"] },
+    { "kind": "custom", "sourceId": "an exact custom experience ID", "bullets": ["XYZ bullet 1"] }
+  ],
+  "selectedSkillIds": ["exact skill ID"]
 }
 
 Remember: every bullet must read like it was written by someone who deeply understands both the candidate's work AND the hiring manager's needs. Not generic AI output — expert career strategy.`
@@ -486,19 +535,43 @@ Remember: every bullet must read like it was written by someone who deeply under
   const jsonText = extractJsonObject(raw)
   const parsed = JSON.parse(jsonText) as {
     summary?: string
-    entries?: { index?: number; bullets?: string[] }[]
+    jobTitle?: string
+    jobCompany?: string
+    selectedEntries?: { kind?: string; sourceId?: string; bullets?: string[] }[]
+    selectedSkillIds?: string[]
   }
 
-  const bullets: Record<number, string[]> = {}
-
-  for (const entry of parsed.entries ?? []) {
-    if (typeof entry.index !== 'number' || !Array.isArray(entry.bullets)) continue
-    bullets[entry.index] = entry.bullets.filter((bullet) => typeof bullet === 'string' && bullet.trim().length > 10).slice(0, 7)
-  }
+  const validProjectIds = new Set(projects.map((project) => project.id))
+  const validCustomIds = new Set(entries.filter((entry) => entry.kind === 'custom').map((entry) => entry.sourceId))
+  const validSkillIds = new Set(skills.map((skill) => skill.id))
+  const verifiedJobTitle = typeof parsed.jobTitle === 'string' && jd.toLowerCase().includes(parsed.jobTitle.trim().toLowerCase())
+    ? parsed.jobTitle.trim()
+    : ''
+  const verifiedJobCompany = typeof parsed.jobCompany === 'string' && jd.toLowerCase().includes(parsed.jobCompany.trim().toLowerCase())
+    ? parsed.jobCompany.trim()
+    : ''
+  const selectedEntries = (parsed.selectedEntries ?? [])
+    .filter((entry) => {
+      if (entry.kind === 'project') return typeof entry.sourceId === 'string' && validProjectIds.has(entry.sourceId)
+      if (entry.kind === 'custom') return typeof entry.sourceId === 'string' && validCustomIds.has(entry.sourceId)
+      return false
+    })
+    .map((entry) => ({
+      kind: entry.kind as 'project' | 'custom',
+      sourceId: entry.sourceId as string,
+      bullets: asStringArray(entry.bullets, 'selectedEntries.bullets').slice(0, 4),
+    }))
+    .filter((entry) => entry.bullets.length > 0)
+    .slice(0, 5)
 
   return {
     summary: parsed.summary?.trim() || currentSummary,
-    bullets,
+    jobTitle: verifiedJobTitle,
+    jobCompany: verifiedJobCompany,
+    selectedEntries,
+    selectedSkillIds: asStringArray(parsed.selectedSkillIds, 'selectedSkillIds')
+      .filter((id) => validSkillIds.has(id))
+      .slice(0, 18),
   }
 }
 
@@ -558,7 +631,7 @@ Write a cover letter following this PROVEN STRUCTURE:
 
 PARAGRAPH 1 — THE HOOK (3-4 sentences):
 - Open with "Dear Hiring Team," (never "To Whom It May Concern")
-- State the EXACT role title and company name.
+- State the exact role title and company name when provided. If either is absent, use "this role" or "your team" and do not invent it.
 - Immediately connect: what specific thing about this company/role excites the candidate? Reference something concrete from the JD (a technology they use, a problem they're solving, a team they're building).
 - End with a positioning statement: "As a [specific title] with [specific experience], I bring [specific value]."
 
@@ -582,8 +655,8 @@ CRITICAL RULES:
 - Be specific enough that this letter could ONLY be about this candidate and this job.
 
 JOB:
-Title: ${jobTitle || 'Not specified'}
-Company: ${company || 'Not specified'}
+Title: ${jobTitle || '(not explicitly provided; do not invent)'}
+Company: ${company || '(not explicitly provided; do not invent)'}
 Location: ${location || 'Not specified'}
 Employment type: ${employmentType || 'Not specified'}
 Description:

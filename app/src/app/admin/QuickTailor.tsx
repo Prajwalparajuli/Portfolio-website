@@ -175,15 +175,18 @@ export function AdminQuickTailor() {
       }
 
       // Step 1: Tailor resume content
-      const { summary, bullets } = await tailorResumeToJob(
+      const tailored = await tailorResumeToJob(
         jdText, summSection?.text ?? '', expSection.items, projects, skills, orphanedSkillNames
       )
 
       const nextContent: ResumeContent = {
         ...baseContent,
         sections: baseContent.sections.map(section => {
-          if (section.type === 'summary') return { ...section, text: summary || section.text }
-          if (section.type === 'experience') return { ...section, items: section.items.map((item, i) => bullets[i] ? { ...item, bullets: bullets[i] } : item) }
+          if (section.type === 'summary') return { ...section, text: tailored.summary || section.text }
+          if (section.type === 'experience') return { ...section, items: tailored.items }
+          if (section.type === 'skills' && tailored.selectedSkillIds.length > 0) {
+            return { ...section, includedIds: tailored.selectedSkillIds }
+          }
           return section
         }),
       }
@@ -192,7 +195,13 @@ export function AdminQuickTailor() {
       // Step 2: Generate cover letter (parallel with ATS)
       const [cl, ats] = await Promise.allSettled([
         generateCoverLetter(
-          { title: '', company: '', location: '', employment_type: '', description: jdText },
+          {
+            title: tailored.jobTitle,
+            company: tailored.jobCompany,
+            location: '',
+            employment_type: '',
+            description: jdText,
+          },
           { ...selectedVariant!, content: nextContent },
           skills
         ),
@@ -206,7 +215,20 @@ export function AdminQuickTailor() {
         ),
       ])
 
-      if (cl.status === 'fulfilled') setCoverLetter(cl.value)
+      const generatedCoverLetter = cl.status === 'fulfilled' ? cl.value : ''
+      setCoverLetter(generatedCoverLetter)
+      setTailoredContent({
+        ...nextContent,
+        tailoring: {
+          coverLetter: generatedCoverLetter,
+          jobDescription: jdText,
+          jobTitle: tailored.jobTitle,
+          jobCompany: tailored.jobCompany,
+          selectedProjectIds: tailored.selectedProjectIds,
+          selectedSkillIds: tailored.selectedSkillIds,
+          tailoredAt: new Date().toISOString(),
+        },
+      })
       if (ats.status === 'fulfilled') {
         setAtsScore(ats.value.score)
         setAtsFound(ats.value.foundKeywords)
@@ -218,7 +240,7 @@ export function AdminQuickTailor() {
       const entry: SavedTailor = {
         id: crypto.randomUUID(),
         jdSnippet: jdText.slice(0, 100),
-        coverLetter: cl.status === 'fulfilled' ? cl.value : '',
+        coverLetter: generatedCoverLetter,
         atsScore: ats.status === 'fulfilled' ? ats.value.score : null,
         savedAt: new Date().toISOString(),
       }
@@ -230,7 +252,7 @@ export function AdminQuickTailor() {
     } finally {
       setTailoring(false)
     }
-  }, [baseContent, settings, jdText, projects, skills, orphanedSkillNames, selectedVariant])
+  }, [baseContent, settings, jdText, projects, skills, orphanedSkillNames, selectedVariant, history])
 
   // ── Save as variant ─────────────────────────────────────────────────────────
 
@@ -240,19 +262,23 @@ export function AdminQuickTailor() {
     try {
       const created = await createResumeVariant({
         candidateProfileId: selectedVariant.candidateProfileId,
-        name: `Tailored ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`,
+        name: tailoredContent.tailoring?.jobCompany || tailoredContent.tailoring?.jobTitle
+          ? [tailoredContent.tailoring.jobCompany, tailoredContent.tailoring.jobTitle].filter(Boolean).join(' - ')
+          : `Tailored ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`,
         variantType: 'tailored',
         isPrimary: false,
-        sourceJobTitle: '',
-        sourceJobCompany: '',
+        sourceJobTitle: tailoredContent.tailoring?.jobTitle ?? '',
+        sourceJobCompany: tailoredContent.tailoring?.jobCompany ?? '',
         sourceJobUrl: '',
         notes: `Quick Tailor — ${jdText.slice(0, 80)}...`,
         content: tailoredContent,
       }, { settings })
       if (created) {
         setVariants(prev => [created, ...prev])
-        setSavedMsg(`Saved as "${created.name}"`)
+        setSavedMsg(`Saved resume + cover letter as "${created.name}"`)
         setTimeout(() => setSavedMsg(null), 5000)
+      } else {
+        setSavedMsg('Saved variants are unavailable. Apply migration 003 first.')
       }
     } catch {
       setSavedMsg('Failed to save variant')
@@ -276,6 +302,18 @@ export function AdminQuickTailor() {
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }, [coverLetter])
+
+  const handleCoverLetterChange = useCallback((value: string) => {
+    setCoverLetter(value)
+    setTailoredContent((current) => current
+      ? {
+          ...current,
+          tailoring: current.tailoring
+            ? { ...current.tailoring, coverLetter: value }
+            : undefined,
+        }
+      : current)
+  }, [])
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
@@ -310,7 +348,7 @@ export function AdminQuickTailor() {
       <div>
         <h1 className="text-xl font-bold text-foreground">Quick Tailor</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Paste a job description → get a tailored resume + cover letter + ATS score.
+          Paste a job description to select the strongest portfolio evidence, write XYZ bullets, and save a tailored resume + cover letter.
         </p>
       </div>
 
@@ -338,7 +376,12 @@ export function AdminQuickTailor() {
                   <button
                     key={v.id}
                     type="button"
-                    onClick={() => { setSelectedVariantId(v.id); setTailoredContent(null); setCoverLetter(''); setAtsScore(null) }}
+                    onClick={() => {
+                      setSelectedVariantId(v.id)
+                      setTailoredContent(null)
+                      setCoverLetter(v.content.tailoring?.coverLetter ?? '')
+                      setAtsScore(null)
+                    }}
                     className={cn(
                       'rounded-lg border px-3 py-1.5 text-xs transition-colors',
                       v.id === selectedVariantId
@@ -409,7 +452,7 @@ export function AdminQuickTailor() {
                       disabled={savingVariant}
                     >
                       {savingVariant ? <Loader2 className="h-3 w-3 animate-spin" /> : <NotebookPen className="h-3 w-3" />}
-                      Save as variant
+                      Save resume + cover
                     </Button>
                     <Link to={getAdminPath('resume')}>
                       <Button size="sm" variant="ghost" className="gap-1.5 text-xs h-7">
@@ -458,7 +501,7 @@ export function AdminQuickTailor() {
                 {coverLetter ? (
                   <Textarea
                     value={coverLetter}
-                    onChange={e => setCoverLetter(e.target.value)}
+                    onChange={e => handleCoverLetterChange(e.target.value)}
                     rows={14}
                     className="bg-black/30 border-white/10 text-sm leading-relaxed resize-y"
                   />
