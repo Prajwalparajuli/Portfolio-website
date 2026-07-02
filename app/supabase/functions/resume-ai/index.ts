@@ -1,26 +1,25 @@
 import { corsHeaders, json, requireAdminUser } from '../_shared/common.ts'
 
-const MODEL_BY_TASK = {
-  // Quick tasks — Flash is fast and cheap
-  generate_bullets: 'gemini-2.5-flash',
-  improve_bullet: 'gemini-2.5-flash',
-  generate_subtitle: 'gemini-2.5-flash',
-  // High-stakes tasks — Pro for deeper reasoning
-  generate_summary: 'gemini-2.5-pro',
-  tailor_resume: 'gemini-2.5-pro',
-  generate_cover_letter: 'gemini-2.5-pro',
-  analyze_jd_match: 'gemini-2.5-pro',
+const MODEL_CANDIDATES_BY_TASK = {
+  // Pro has no free-tier quota for this project. Flash is the stable primary
+  // model; Flash-Lite provides a separate low-cost fallback quota pool.
+  generate_bullets: ['gemini-2.5-flash', 'gemini-2.5-flash-lite'],
+  improve_bullet: ['gemini-2.5-flash', 'gemini-2.5-flash-lite'],
+  generate_subtitle: ['gemini-2.5-flash', 'gemini-2.5-flash-lite'],
+  generate_summary: ['gemini-2.5-flash', 'gemini-2.5-flash-lite'],
+  tailor_resume: ['gemini-2.5-flash', 'gemini-2.5-flash-lite'],
+  generate_cover_letter: ['gemini-2.5-flash', 'gemini-2.5-flash-lite'],
+  analyze_jd_match: ['gemini-2.5-flash', 'gemini-2.5-flash-lite'],
 } as const
 
-/** Tasks that benefit from chain-of-thought reasoning (Pro tier). */
-const THINKING_ENABLED_TASKS: ReadonlySet<TaskName> = new Set([
+const COMPLEX_TASKS: ReadonlySet<TaskName> = new Set([
   'generate_summary',
   'tailor_resume',
   'generate_cover_letter',
   'analyze_jd_match',
 ])
 
-type TaskName = keyof typeof MODEL_BY_TASK
+type TaskName = keyof typeof MODEL_CANDIDATES_BY_TASK
 
 type ResumeAiProject = {
   id: string
@@ -234,50 +233,58 @@ async function callGemini(task: TaskName, prompt: string, maxOutputTokens: numbe
     throw new Error('GEMINI_API_KEY is not configured in Supabase secrets.')
   }
 
-  const model = MODEL_BY_TASK[task]
-  const useThinking = THINKING_ENABLED_TASKS.has(task)
-
   const generationConfig: Record<string, unknown> = {
-    temperature: useThinking ? 0.4 : 0.3,
+    temperature: COMPLEX_TASKS.has(task) ? 0.4 : 0.3,
     maxOutputTokens,
+    // 2.5 Flash supports thinking, but disabling it reduces quota usage and
+    // reserves the output budget for the requested JSON or document text.
+    thinkingConfig: { thinkingBudget: 0 },
   }
 
-  // Disable thinking for Flash tasks (speed), enable for Pro tasks (quality)
-  if (!useThinking) {
-    generationConfig.thinkingConfig = { thinkingBudget: 0 }
-  }
+  const models = MODEL_CANDIDATES_BY_TASK[task]
 
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig,
-      }),
+  for (const [index, model] of models.entries()) {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig,
+        }),
+      }
+    )
+
+    if (response.ok) {
+      const data = (await response.json()) as {
+        candidates?: { content?: { parts?: { text?: string }[] } }[]
+      }
+      return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? ''
     }
-  )
 
-  if (!response.ok) {
     const errorPayload = await response.json().catch(() => ({}))
     const message =
       (errorPayload as { error?: { message?: string } }).error?.message ??
       `Gemini request failed with status ${response.status}.`
+    const isQuotaError = response.status === 429 || /quota|rate.?limit|resource.?exhausted/i.test(message)
+    const hasFallback = index < models.length - 1
+
+    if (isQuotaError && hasFallback) {
+      console.warn(`${model} quota unavailable for ${task}; falling back to ${models[index + 1]}.`)
+      continue
+    }
+
+    if (isQuotaError) {
+      throw new Error(
+        'Gemini free-tier quota is currently unavailable for both Flash models. Try again after the quota resets or enable billing in Google AI Studio.'
+      )
+    }
+
     throw new Error(message)
   }
 
-  const data = (await response.json()) as {
-    candidates?: { content?: { parts?: { text?: string }[] } }[]
-  }
-
-  let rawText = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? ''
-  
-  // Post-processing: Rigorously destroy any [X] or [X]% that the AI hallucinates despite the prompt.
-  rawText = rawText.replace(/\[X\]%/g, 'significant improvement')
-  rawText = rawText.replace(/\[X\]/g, 'measurable results')
-
-  return rawText
+  throw new Error('No Gemini model was available for this request.')
 }
 
 async function handleGenerateBullets(payload: { project: ResumeAiProject }) {
