@@ -5,9 +5,9 @@ import { getProjectBySlug } from '@/lib/supabase'
 import { PortfolioSettings, Project } from '@/types'
 import { Loader2 } from 'lucide-react'
 
-const DEFAULT_TITLE = 'Prajwal Parajuli | Data Scientist & AI Engineer'
+const DEFAULT_TITLE = 'Prajwal Parajuli | Data Scientist & Data Analyst'
 const DEFAULT_DESCRIPTION =
-  'Portfolio of a Data Scientist & AI Engineer — Machine Learning, Computer Vision, and Recommendation Systems.'
+  'Portfolio of a Data Scientist & Data Analyst — Machine Learning, Statistical Analysis, and Data Pipelines.'
 
 interface OutletContext {
   settings: PortfolioSettings

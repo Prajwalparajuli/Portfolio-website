@@ -224,7 +224,7 @@ INSERT INTO settings (key, value) VALUES
     ('github_url', ''),
     ('twitter_url', ''),
     ('site_title', 'Prajwal Parajuli'),
-    ('site_description', 'Portfolio of a Data Scientist & AI Engineer'),
+    ('site_description', 'Portfolio of a Data Scientist & Data Analyst'),
     ('now_line', 'Open to full-time Data Science & ML Engineering roles'),
     ('education', '[{"type":"education","title":"B.S. Data Science (GPA 3.94/4.00)","issuer":"University of Houston-Downtown","date":"Graduated May 2026"}]')
 ON CONFLICT (key) DO NOTHING;

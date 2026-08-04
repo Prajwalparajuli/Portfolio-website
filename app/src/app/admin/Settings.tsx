@@ -169,7 +169,7 @@ export function AdminSettings() {
                     id="site_description"
                     value={settings.site_description}
                     onChange={(e) => setSettings({ ...settings, site_description: e.target.value })}
-                    placeholder="Portfolio of a Data Scientist & AI Engineer"
+                    placeholder="Portfolio of a Data Scientist & Data Analyst"
                     className="bg-black/40 border-white/10"
                   />
                 </div>

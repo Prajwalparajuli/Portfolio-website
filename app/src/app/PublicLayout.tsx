@@ -12,14 +12,14 @@ const contactEmailDefault =
   'your.email@example.com'
 
 const DEFAULT_SETTINGS: PortfolioSettings = {
-  bio: 'Data Scientist and AI Engineer passionate about building intelligent systems that solve real-world problems.',
+  bio: 'B.S. Data Science graduate from University of Houston-Downtown (GPA 3.94/4.00) building machine learning systems, statistical models, and data pipelines.',
   contact_email: contactEmailDefault,
   resume_url: '',
   linkedin_url: 'https://www.linkedin.com/in/prajwal-parajuli',
   github_url: 'https://github.com/Prajwalparajuli',
   twitter_url: '',
   site_title: 'Prajwal Parajuli',
-  site_description: 'Data Scientist & AI Engineer — Machine Learning, Computer Vision, and Recommendation Systems',
+  site_description: 'Data Scientist & Data Analyst — Machine Learning, Statistical Analysis, and Data Pipelines',
   now_line: '',
   location: '',
   education: [],

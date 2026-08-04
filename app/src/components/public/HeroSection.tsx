@@ -101,7 +101,7 @@ export function HeroSection({ settings, projects = [] }: HeroSectionProps) {
 
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-              {settings.site_description?.split('—')[0]?.trim() || 'Data Scientist & AI Engineer'}
+              {settings.site_description?.split('—')[0]?.trim() || 'Data Scientist & Data Analyst'}
             </p>
             <h1 className="mt-1 font-display text-4xl font-semibold tracking-tight text-foreground sm:text-5xl lg:text-6xl">
               {settings.site_title || 'Prajwal Parajuli'}

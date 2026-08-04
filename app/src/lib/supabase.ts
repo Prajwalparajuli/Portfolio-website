@@ -2173,7 +2173,7 @@ function getDefaultSettings(): PortfolioSettings {
     github_url: '',
     twitter_url: '',
     site_title: 'Prajwal Parajuli',
-    site_description: 'Portfolio of a Data Scientist & AI Engineer',
+    site_description: 'Portfolio of a Data Scientist & Data Analyst',
     now_line: 'Open to full-time Data Science & ML Engineering roles',
     location: '',
     education: [

@@ -314,7 +314,7 @@ export function NowPage() {
               Let's build something together
             </h2>
             <p className="mt-2 text-muted-foreground max-w-lg mx-auto">
-              I'm currently open to full-time Data Science, ML Engineering, and AI roles.
+              I'm currently open to full-time Data Science, Data Analyst, and ML Engineering roles.
               If my work resonates, I'd love to hear from you.
             </p>
             <div className="mt-6 flex flex-wrap justify-center gap-3">
