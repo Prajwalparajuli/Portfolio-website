@@ -2166,16 +2166,23 @@ function getDefaultSettings(): PortfolioSettings {
     (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_CONTACT_EMAIL?.trim() ||
     'your.email@example.com'
   return {
-    bio: 'Data Scientist and AI Engineer passionate about building intelligent systems that solve real-world problems.',
+    bio: 'B.S. Data Science graduate from University of Houston-Downtown (GPA 3.94/4.00) building machine learning systems, statistical models, and data pipelines.',
     contact_email: contactEmail,
     resume_url: '',
     linkedin_url: '',
     github_url: '',
     twitter_url: '',
-    site_title: 'AI Portfolio',
+    site_title: 'Prajwal Parajuli',
     site_description: 'Portfolio of a Data Scientist & AI Engineer',
-    now_line: '',
+    now_line: 'Open to full-time Data Science & ML Engineering roles',
     location: '',
-    education: [],
+    education: [
+      {
+        type: 'education',
+        title: 'B.S. Data Science (GPA 3.94/4.00)',
+        issuer: 'University of Houston-Downtown',
+        date: 'Graduated May 2026',
+      },
+    ],
   }
 }

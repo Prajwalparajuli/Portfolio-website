@@ -12,7 +12,7 @@ interface HeroSectionProps {
 
 /** Base skills always shown even with zero projects */
 const BASE_SKILLS = [
-  'Python', 'PyTorch', 'Scikit-learn', 'SQL', 'Computer Vision', 'NLP',
+  'Python', 'SQL', 'R', 'PyTorch', 'Scikit-learn', 'Computer Vision', 'NLP',
   'Deep Learning', 'Data Pipelines', 'Recommendation Systems',
 ]
 
@@ -171,15 +171,14 @@ export function HeroSection({ settings, projects = [] }: HeroSectionProps) {
             </div>
 
             {/* Education credential — adds weight */}
-            {topCredential && (
-              <div className="mt-5 flex items-center gap-2 text-sm text-muted-foreground">
-                <GraduationCap className="h-4 w-4 text-accent/70" />
-                <span>
-                  {topCredential.title}
-                  {topCredential.issuer ? ` — ${topCredential.issuer}` : ''}
-                </span>
-              </div>
-            )}
+            <div className="mt-5 flex items-center gap-2 text-sm text-muted-foreground">
+              <GraduationCap className="h-4 w-4 text-accent/70" />
+              <span>
+                {topCredential
+                  ? `${topCredential.title}${topCredential.issuer ? ` — ${topCredential.issuer}` : ''}${topCredential.date ? ` (${topCredential.date})` : ''}`
+                  : 'B.S. Data Science (GPA 3.94/4.00) — University of Houston-Downtown (Graduated May 2026)'}
+              </span>
+            </div>
           </div>
 
           {/* Right: Featured projects — aligned to top */}

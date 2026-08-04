@@ -599,14 +599,13 @@ function extractBulletsFromProject(project: Project): string[] {
  * Generate a factual summary template from portfolio settings.
  */
 function buildSummaryTemplate(s: PortfolioSettings, skills: Skill[]): string {
-  const topSkills = skills.slice(0, 5).map(sk => sk.name).join(', ')
   const edu = s.education[0]
-  const degree = edu ? `${edu.title} candidate at ${edu.issuer}` : 'Data Science professional'
+  const degree = edu ? `${edu.title} graduate from ${edu.issuer}` : 'B.S. Data Science graduate from University of Houston-Downtown'
   const location = s.location || ''
   return [
-    `${degree}${location ? ` based in ${location}` : ''} with hands-on research and project experience in machine learning, deep learning, and NLP.`,
-    `Skilled in ${topSkills || 'Python, SQL, and machine learning frameworks'}, with a strong foundation in statistics, data wrangling, and end-to-end model development.`,
-    'Applies these tools across portfolio projects spanning model development, evaluation, and technical delivery.',
+    `Recent ${degree} (May 2026, GPA 3.94/4.00)${location ? ` based in ${location}` : ''} with end-to-end project work in ML pipelines, statistical analysis, and data quality.`,
+    `Proficient in Python, SQL, and R, with hands-on experience building, evaluating, and deploying machine learning models and data pipelines.`,
+    'Applies these skills across portfolio projects spanning model development, evaluation, and technical delivery.',
   ].join(' ')
 }
 
@@ -2708,7 +2707,7 @@ export function AdminResumeEditor() {
               <Textarea
                 value={summSection?.text || ''}
                 onChange={e => updateSection('summary', { text: e.target.value })}
-                placeholder="Data Science undergraduate at University of Houston–Downtown with research and project experience in ML, NLP, and deep learning. Skilled in Python, R, and SQL…"
+                placeholder="Recent B.S. Data Science graduate from University of Houston–Downtown (May 2026, GPA 3.94/4.00) with end-to-end project work in ML pipelines, statistical analysis, and data quality. Proficient in Python, SQL, and R…"
                 className="bg-black/40 border-white/10 min-h-[90px] text-sm resize-none"
               />
               <div className="flex items-center gap-2">

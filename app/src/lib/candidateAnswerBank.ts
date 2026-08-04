@@ -9,7 +9,7 @@ export const DEFAULT_CANDIDATE_ANSWER_SEEDS: CandidateAnswerSeed[] = [
     label: 'Professional intro',
     category: 'introduction',
     answer:
-      'Early-career candidate focused on data, analytics, and machine learning roles, with hands-on project experience building end-to-end technical workflows and communicating results clearly.',
+      'Recent B.S. Data Science graduate from University of Houston-Downtown (May 2026, GPA 3.94/4.00) focused on Data Science, ML Engineering, and Analytics roles. Proficient in Python, SQL, and R with hands-on project work in ML pipelines, statistical analysis, and data quality.',
   },
   {
     prompt_key: 'work-authorization',
@@ -30,7 +30,7 @@ export const DEFAULT_CANDIDATE_ANSWER_SEEDS: CandidateAnswerSeed[] = [
     label: 'Start availability',
     category: 'logistics',
     answer:
-      'Available to start in [month / year] or sooner with coordination. Update this answer if your graduation timeline or availability changes.',
+      'Graduated in May 2026. Available to start immediately.',
   },
   {
     prompt_key: 'location-relocation',

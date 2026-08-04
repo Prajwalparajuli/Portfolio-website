@@ -256,5 +256,136 @@ export const narrativeOverrides: Record<string, StructuredNarrative> = {
       variant: 'showcase',
     },
   },
+
+  'statistical-analysis-of-customer-complaint-topics': {
+    hook: 'Analyzing 164,003 CFPB customer complaint narratives to model complaint topics with LDA and quantify dispute rate disparities using R hypothesis testing.',
+    problem: 'Financial institutions receive massive volumes of unstructured complaint text. Manual categorization is impossible at scale, and institutions need statistically rigorous evidence to identify which complaint topics lead to significantly higher consumer dispute rates.',
+    approach: 'Built a two-phase NLP and statistical inference pipeline. Phase 1 (Python): preprocessed 164,003 CFPB complaints using NLTK (lowercasing, tokenization, stopword removal, lemmatization), vectorized TF-IDF features with Gensim, and trained a Latent Dirichlet Allocation (LDA) model to discover 7 latent topics. Phase 2 (R): evaluated dispute rates across topics using tidyverse and ggplot2, performed a two-proportion z-test (prop.test), and computed a 95% confidence interval.',
+    results: [
+      'Preprocessed and categorized 164,003 CFPB customer complaint narratives into 7 LDA topics',
+      'Measured a statistically significant gap in consumer dispute rates: 24.1% vs 16.9% between highest and lowest friction topics',
+      'Confirmed statistical significance via two-proportion z-test: p < 2.2e-16',
+      'Calculated 95% confidence interval for the dispute rate difference: [6.5%, 7.8%]',
+    ],
+    learned: [
+      'Unsupervised LDA topic modeling on large text corpora requires iterative vocabulary filtering and TF-IDF weighting for distinct topic separation',
+      'Rigorous statistical hypothesis testing (two-proportion z-test with confidence intervals) turns NLP topic outputs into actionable business intelligence',
+    ],
+    summary: 'An end-to-end NLP and statistical analysis project extracting actionable business intelligence from 164,003 CFPB customer complaints. Combines Python LDA topic modeling across 7 latent topics with R hypothesis testing to prove a 24.1% vs 16.9% dispute rate disparity (p < 2.2e-16, 95% CI [6.5%, 7.8%]).',
+    metrics: [
+      { label: 'Complaints', value: '164,003', context: 'CFPB dataset' },
+      { label: 'LDA Topics', value: '7', context: 'discovered' },
+      { label: 'Dispute Rates', value: '24.1% vs 16.9%', context: 'high vs low' },
+      { label: 'Significance', value: 'p < 2.2e-16', context: 'two-prop z-test' },
+      { label: '95% CI', value: '[6.5%, 7.8%]', context: 'diff interval' },
+    ],
+    techHighlights: [
+      'Python NLTK preprocessing pipeline: tokenization, stopword removal, lemmatization, and Bag-of-Words TF-IDF vectorization',
+      'Gensim Latent Dirichlet Allocation (LDA) modeling discovering 7 clear complaint themes',
+      'R statistical inference using prop.test for two-proportion z-testing and ggplot2 visual reporting',
+    ],
+    theme: {
+      accent: '#3b82f6',
+      accentAlt: '#1d4ed8',
+      variant: 'research',
+    },
+  },
+
+  'nlp-statistical-analysis-of-customer-complaints': {
+    hook: 'Analyzing 164,003 CFPB customer complaint narratives to model complaint topics with LDA and quantify dispute rate disparities using R hypothesis testing.',
+    problem: 'Financial institutions receive massive volumes of unstructured complaint text. Manual categorization is impossible at scale, and institutions need statistically rigorous evidence to identify which complaint topics lead to significantly higher consumer dispute rates.',
+    approach: 'Built a two-phase NLP and statistical inference pipeline. Phase 1 (Python): preprocessed 164,003 CFPB complaints using NLTK, vectorized TF-IDF features with Gensim, and trained a Latent Dirichlet Allocation (LDA) model to discover 7 latent topics. Phase 2 (R): evaluated dispute rates across topics using tidyverse and ggplot2, performed a two-proportion z-test (prop.test), and computed a 95% confidence interval.',
+    results: [
+      'Preprocessed and categorized 164,003 CFPB customer complaint narratives into 7 LDA topics',
+      'Measured a statistically significant gap in consumer dispute rates: 24.1% vs 16.9% between highest and lowest friction topics',
+      'Confirmed statistical significance via two-proportion z-test: p < 2.2e-16',
+      'Calculated 95% confidence interval for the dispute rate difference: [6.5%, 7.8%]',
+    ],
+    learned: [
+      'Unsupervised LDA topic modeling on large text corpora requires iterative vocabulary filtering and TF-IDF weighting for distinct topic separation',
+      'Rigorous statistical hypothesis testing (two-proportion z-test with confidence intervals) turns NLP topic outputs into actionable business intelligence',
+    ],
+    summary: 'An end-to-end NLP and statistical analysis project extracting actionable business intelligence from 164,003 CFPB customer complaints. Combines Python LDA topic modeling across 7 latent topics with R hypothesis testing to prove a 24.1% vs 16.9% dispute rate disparity (p < 2.2e-16, 95% CI [6.5%, 7.8%]).',
+    metrics: [
+      { label: 'Complaints', value: '164,003', context: 'CFPB dataset' },
+      { label: 'LDA Topics', value: '7', context: 'discovered' },
+      { label: 'Dispute Rates', value: '24.1% vs 16.9%', context: 'high vs low' },
+      { label: 'Significance', value: 'p < 2.2e-16', context: 'two-prop z-test' },
+      { label: '95% CI', value: '[6.5%, 7.8%]', context: 'diff interval' },
+    ],
+    techHighlights: [
+      'Python NLTK preprocessing pipeline: tokenization, stopword removal, lemmatization, and Bag-of-Words TF-IDF vectorization',
+      'Gensim Latent Dirichlet Allocation (LDA) modeling discovering 7 clear complaint themes',
+      'R statistical inference using prop.test for two-proportion z-testing and ggplot2 visual reporting',
+    ],
+    theme: {
+      accent: '#3b82f6',
+      accentAlt: '#1d4ed8',
+      variant: 'research',
+    },
+  },
+
+  'revenue-and-operations-intelligence': {
+    hook: 'Market basket analysis and operations intelligence pipeline evaluating 3.4M+ Instacart orders from 200K+ users across 50K+ products.',
+    problem: 'Large e-commerce platforms handle millions of customer transactions across tens of thousands of items. Discovering purchase sequences, user reorder behavior, and product affinity patterns requires scalable data processing and feature engineering.',
+    approach: 'Engineered a customer transaction and operations intelligence pipeline in Python and SQL to analyze 3.4M+ Instacart orders from 200K+ users. Structured product affinity matrices and reorder prediction features across 50K+ catalog products, serving recommendation and inventory models across 49K+ products.',
+    results: [
+      'Analyzed 3.4M+ Instacart orders across 200K+ users',
+      'Engineered feature matrix across 50K+ catalog products',
+      'Built market basket and recommendation pipelines serving 49K+ products',
+    ],
+    learned: [
+      'Processing large transaction datasets efficiently requires optimizing pandas memory types and SQL window functions for user reorder history calculations',
+    ],
+    summary: 'An e-commerce operations intelligence and market basket analysis system evaluating 3.4M+ Instacart orders, 200K+ users, and 50K+ catalog products, with recommendation models serving 49K+ products.',
+    metrics: [
+      { label: 'Orders', value: '3.4M+', context: 'analyzed' },
+      { label: 'Users', value: '200K+', context: 'consumers' },
+      { label: 'Products', value: '50K+', context: 'catalog' },
+      { label: 'Served', value: '49K+', context: 'products' },
+    ],
+    techHighlights: [
+      'Python (pandas, numpy, scikit-learn) and SQL transaction pipelines',
+      'User reorder probability and product association matrix algorithms',
+      'E-commerce operations and inventory analytics dashboards',
+    ],
+    theme: {
+      accent: '#10b981',
+      accentAlt: '#047857',
+      variant: 'dashboard',
+    },
+  },
+
+  'instacart-market-basket-analysis': {
+    hook: 'Market basket analysis and operations intelligence pipeline evaluating 3.4M+ Instacart orders from 200K+ users across 50K+ products.',
+    problem: 'Large e-commerce platforms handle millions of customer transactions across tens of thousands of items. Discovering purchase sequences, user reorder behavior, and product affinity patterns requires scalable data processing and feature engineering.',
+    approach: 'Engineered a customer transaction and operations intelligence pipeline in Python and SQL to analyze 3.4M+ Instacart orders from 200K+ users. Structured product affinity matrices and reorder prediction features across 50K+ catalog products, serving recommendation and inventory models across 49K+ products.',
+    results: [
+      'Analyzed 3.4M+ Instacart orders across 200K+ users',
+      'Engineered feature matrix across 50K+ catalog products',
+      'Built market basket and recommendation pipelines serving 49K+ products',
+    ],
+    learned: [
+      'Processing large transaction datasets efficiently requires optimizing pandas memory types and SQL window functions for user reorder history calculations',
+    ],
+    summary: 'An e-commerce operations intelligence and market basket analysis system evaluating 3.4M+ Instacart orders, 200K+ users, and 50K+ catalog products, with recommendation models serving 49K+ products.',
+    metrics: [
+      { label: 'Orders', value: '3.4M+', context: 'analyzed' },
+      { label: 'Users', value: '200K+', context: 'consumers' },
+      { label: 'Products', value: '50K+', context: 'catalog' },
+      { label: 'Served', value: '49K+', context: 'products' },
+    ],
+    techHighlights: [
+      'Python (pandas, numpy, scikit-learn) and SQL transaction pipelines',
+      'User reorder probability and product association matrix algorithms',
+      'E-commerce operations and inventory analytics dashboards',
+    ],
+    theme: {
+      accent: '#10b981',
+      accentAlt: '#047857',
+      variant: 'dashboard',
+    },
+  },
 }
+
 
